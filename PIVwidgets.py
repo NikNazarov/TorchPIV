@@ -1,6 +1,5 @@
 from multiprocessing import dummy
-import os
-from isort import file 
+import os 
 import matplotlib
 import json
 matplotlib.use('Qt5Agg')
