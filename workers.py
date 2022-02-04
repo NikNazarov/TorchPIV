@@ -3,6 +3,7 @@ import sys
 import time
 import numpy as np
 import pandas as pd
+from torch import float64
 from torchvision import transforms
 from collections import deque
 from PIVwidgets import PIVparams
@@ -63,6 +64,8 @@ class PIVWorker(QObject):
             iterations=self.piv_params.iterations,
             iter_scale=self.piv_params.iter_scale
         )
+        u_inst = []
+        v_inst = [] 
 
         for i, out in enumerate(piv_gen()):
             while self.is_paused and self.is_running: 
@@ -76,13 +79,24 @@ class PIVWorker(QObject):
             if self.avg_u is None:
                 self.avg_u = np.zeros_like(u, dtype=np.float64)
                 self.avg_v = np.zeros_like(v, dtype=np.float64)
-            self.avg_u += u 
-            self.avg_v += v
+            u_inst.append(u.astype(np.float32))
+            v_inst.append(v.astype(np.float32))
             self.signals.progress.emit((i + 1)/len(piv_gen)*100)
             self.signals.output.emit((x, y, u, v))
 
-        self.avg_v = self.avg_v/(i+1)
-        self.avg_u = self.avg_u/(i+1)
+
+        self.signals.progress.emit(0)
+        u_inst = np.stack(u_inst, axis=0)
+        v_inst = np.stack(v_inst, axis=0)
+        self.avg_u = np.mean(u_inst, axis=0, dtype=np.float64)
+        self.avg_v = np.mean(v_inst, axis=0, dtype=np.float64)
+        self.signals.progress.emit(25)
+        uu = np.mean((u_inst - self.avg_u)**2, axis=0, dtype=np.float64)
+        self.signals.progress.emit(50)
+        vv = np.mean((v_inst - self.avg_v)**2, axis=0, dtype=np.float64)
+        self.signals.progress.emit(75)
+        uv = np.mean((u_inst - self.avg_u)*(v_inst - self.avg_v), axis=0, dtype=np.float64)
+        self.signals.progress.emit(100)
         out = (x, y, self.avg_u, self.avg_v)
 
         x = x * self.piv_params.scale
@@ -98,6 +112,9 @@ class PIVWorker(QObject):
             "y[mm]": y.reshape(-1),
             "Vx[m/s]": self.avg_u.reshape(-1),
             "Vy[m/s]": self.avg_v.reshape(-1),
+            "(vx-Vx)(vy-Vy)[m^2/s^2]": uv.reshape(-1),
+            "(vx-Vx)^2[m^2/s^2]": uu.reshape(-1),
+            "(vy-Vy)^2[m^2/s^2]": vv.reshape(-1),
             "dVx/dx[1/s]": dUx.reshape(-1),
             "dVx/dy[1/s]": dUy.reshape(-1),
             "dVy/dx[1/s]": dVx.reshape(-1),
@@ -105,7 +122,8 @@ class PIVWorker(QObject):
             "W[1/s]": (dVx - dUy).reshape(-1),
             "S[1/s]": (dVx + dUy).reshape(-1),
         }
-        save_table("Statistics.txt", self.piv_params.save_dir, table)
+        name = os.path.basename(os.path.normpath(self.folder))
+        save_table(f"{name}.txt", self.piv_params.save_dir, table)
         self.signals.finished.emit(out)
 
 

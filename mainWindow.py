@@ -65,11 +65,12 @@ class MainWindow(QMainWindow):
         self.piv_widget.piv.set_quiver(u, v)
         x0 = x[0]
         y0 = y[:, 0]
-        xi = np.linspace(x0.min(), x0.max(), x0.size)
-        yi = np.linspace(y0.min(), y0.max(), y0.size)
-        ui = RectBivariateSpline(x0, y0, u)(xi, yi)
-        vi = RectBivariateSpline(x0, y0, v)(xi, yi)
-        self.piv_widget.piv.axes.streamplot(xi, yi, ui, vi, 
+        xi = np.linspace(x0.min(), x0.max(), y0.size)
+        yi = np.linspace(y0.min(), y0.max(), x0.size)
+        print(x0.shape, y0.shape, u.shape, xi.shape, yi.shape, x.shape)
+        ui = RectBivariateSpline(x0, y0, u.T)(xi, yi)
+        vi = RectBivariateSpline(x0, y0, v.T)(xi, yi)
+        self.piv_widget.piv.axes.streamplot(xi, yi, ui.T, vi.T, 
             density=5, linewidth=.5, arrowsize=.5
             )
         self.piv_widget.piv.update_canvas()
@@ -121,10 +122,19 @@ class MainWindow(QMainWindow):
         self.calc_thread.start()
 
         # Final resets
-        self.controls.piv_button.setEnabled(False)
+        self._disable_buttons()
         self.calc_thread.finished.connect(
-            lambda: self.controls.piv_button.setEnabled(True)
+            self._enable_buttons
         )
+    def _disable_buttons(self):
+        self.controls.piv_button.setEnabled(False)
+        self.controls.settings.confirm.setEnabled(False)
+
+    
+    def _enable_buttons(self):
+        self.controls.piv_button.setEnabled(True)
+        self.controls.settings.confirm.setEnabled(True)
+
     def message(self, string: str):
         print(string)
 
