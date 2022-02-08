@@ -13,6 +13,12 @@ __Параметры программы:__
 9. Выбор поддерживаемых форматов изображений (bmp, jpg, tiff, ect.)
 10. Выбор опций для сохранения результатов программы
 
+__Installation:__    
+1. Install nvidia CUDA Toolkit https://developer.nvidia.com/cuda-toolkit
+2. Change cudatoolkit version in requarements.txt to your cuda version
+3. In your enviroment or command line <code>pip install -r /path/to/requirements.txt </code>
+4. Compile cython code with <code>python setup.py build_ext --inplace </code>
+
 __Скорость алгоритма__:  
 Данный алгоритм позволяет обработать 4 тыс. пар изображений размером 4 Мп с окном поиска 64, перекрытием 50%, двумя итерациями с переразбиением (увеличение количества векторов в 4 раза) менее чем за 1 час. Первая итерация алгоритма (без интерполированных векторов) занимает 100 мс на ГПУ Geforce GTX 1050.
 
