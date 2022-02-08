@@ -50,6 +50,7 @@ class PIVparams(object):
     save_opt: str = "" 
     save_dir: str = "" 
     iter_scale: float = 2.0
+    folder: str = ""
 
     @classmethod
     def __setattr__(cls, name, val):
@@ -261,7 +262,7 @@ class Settings(QWidget):
 
 
         hhbox.addLayout(dummybox)
-        hhbox.setAlignment(Qt.AlignLeft)
+        hhbox.setAlignment(Qt.AlignRight)
 
     
         vbox_down.addLayout(hhbox)
@@ -540,8 +541,8 @@ class ControlsWidget(QWidget):
         super().__init__(*args, **kwargs)
 
         self.folder_name = QTextEdit()
-        self.folder_name.setText(os.getcwd())
         self.settings = Settings()
+        self.folder_name.setText(self.settings.state.folder)
         self.regime_box = QComboBox()
         self.regime_box.addItems(["offline", "online"])
         self.piv_button = QPushButton("Start PIV")
@@ -607,6 +608,7 @@ class ControlsWidget(QWidget):
     def open_dialog(self, checked):
         folder = QFileDialog.getExistingDirectory()
         self.folder_name.setText(folder)
+        self.settings.state.folder = folder
 
     def show_settings(self, checked):
         if self.settings.isVisible():
