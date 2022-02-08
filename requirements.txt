@@ -6,7 +6,6 @@ pandas==1.2.4
 PyQt5==5.15.6
 scipy==1.6.2
 setuptools==58.4.0
+watchdog==1.0.2
 torch==1.9.1
 torchvision==0.10.1
-watchdog==1.0.2
-cudatoolkit==11.4
