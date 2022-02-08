@@ -67,7 +67,6 @@ class MainWindow(QMainWindow):
         y0 = y[:, 0]
         xi = np.linspace(x0.min(), x0.max(), y0.size)
         yi = np.linspace(y0.min(), y0.max(), x0.size)
-        print(x0.shape, y0.shape, u.shape, xi.shape, yi.shape, x.shape)
         ui = RectBivariateSpline(x0, y0, u.T)(xi, yi)
         vi = RectBivariateSpline(x0, y0, v.T)(xi, yi)
         self.piv_widget.piv.axes.streamplot(xi, yi, ui.T, vi.T, 
