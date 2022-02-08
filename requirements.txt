@@ -1,0 +1,12 @@
+Cython==0.29.23
+matplotlib==3.3.4
+numpy==1.20.1
+opencv_python==4.5.3.56
+pandas==1.2.4
+PyQt5==5.15.6
+scipy==1.6.2
+setuptools==58.4.0
+torch==1.9.1
+torchvision==0.10.1
+watchdog==1.0.2
+cudatoolkit==11.4
