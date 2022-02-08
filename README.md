@@ -14,9 +14,11 @@ __Параметры программы:__
 10. Выбор опций для сохранения результатов программы
 
 __Installation:__    
+It is easier to use conda environment.
 1. Install nvidia CUDA Toolkit https://developer.nvidia.com/cuda-toolkit
-2. Change cudatoolkit version in requarements.txt to your cuda version
-3. In your enviroment or command line <code>pip install -r /path/to/requirements.txt </code>
+2. Install pytorch with GPU support https://pytorch.org/ . Try to match your cuda version but it is not critical 
+3. In your environment or command line <code>pip install -r /path/to/requirements.txt </code>
+If you facing some problems try to <code>pip install "module"</code> manually for each line
 4. Compile cython code with <code>python setup.py build_ext --inplace </code>
 
 __Скорость алгоритма__:  
