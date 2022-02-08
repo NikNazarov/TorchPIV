@@ -79,8 +79,8 @@ class PIVWorker(QObject):
             if self.avg_u is None:
                 self.avg_u = np.zeros_like(u, dtype=np.float64)
                 self.avg_v = np.zeros_like(v, dtype=np.float64)
-            u_inst.append(u.astype(np.float32))
-            v_inst.append(v.astype(np.float32))
+            u_inst.append(u.astype(np.float64))
+            v_inst.append(v.astype(np.float64))
             self.signals.progress.emit((i + 1)/len(piv_gen)*100)
             self.signals.output.emit((x, y, u, v))
 
