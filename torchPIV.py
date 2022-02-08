@@ -412,13 +412,14 @@ def piv_iteration(
     frame_b: np.ndarray, 
     x:       np.ndarray, 
     y:       np.ndarray, 
-    u:       np.ndarray, 
-    v:       np.ndarray, 
+    u0:       np.ndarray, 
+    v0:       np.ndarray, 
     wind_size: int, 
     device: torch.device):
     iter_proc = time()
-    uin = np.rint(u/2).astype(np.int64)
-    vin = np.rint(v/2).astype(np.int64)
+    uin = np.rint(u0/2).astype(np.int64)
+    vin = np.rint(v0/2).astype(np.int64)
+
     bb2 = torch.from_numpy(fastSubpixel.iter_displacement(frame_b, x, y, uin, vin, wind_size))
     aa2 = torch.from_numpy(fastSubpixel.iter_displacement(frame_a, x, y, -uin, -vin, wind_size))
     aa2, bb2 = aa2[None,...].to(device), bb2[None,...].to(device)
@@ -428,6 +429,10 @@ def piv_iteration(
     dv = dv.squeeze()
     v = 2*vin + dv
     u = 2*uin + du
+
+    mask = (np.hypot(du, dv) > np.hypot(u0, v0)) * (np.hypot(uin, vin) > 0)
+    v[mask] = v0[mask]
+    u[mask] = u0[mask]
     torch.cuda.synchronize()
     print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
     return u, v
