@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from torch import float64
+import torch
 from torchvision import transforms
 from collections import deque
 from PIVwidgets import PIVparams
@@ -84,7 +85,7 @@ class PIVWorker(QObject):
             self.signals.progress.emit((i + 1)/len(piv_gen)*100)
             self.signals.output.emit((x, y, u, v))
 
-
+        torch.cuda.empty_cache()
         self.signals.progress.emit(0)
         u_inst = np.stack(u_inst, axis=0)
         v_inst = np.stack(v_inst, axis=0)

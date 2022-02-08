@@ -96,7 +96,8 @@ class MainWindow(QMainWindow):
 
 
     def start_piv(self):
-        self.timer.start(5000)
+        self.timer.start(4000)
+        self.controls.settings.state.to_json()
         self.calc_thread = QThread(parent=None)
         piv_params = self.controls.settings.state
         if self.controls.regime_box.currentText() == "offline":
