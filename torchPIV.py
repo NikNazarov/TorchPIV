@@ -1,12 +1,9 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import torch
 import os
 import re
 from typing import Generator, Tuple
 from torch.utils.data import Dataset
-from torchvision import transforms
-from torch.nn.functional import interpolate as tinterpolate
 from scipy import interpolate
 import cv2
 import fastSubpixel
@@ -24,7 +21,7 @@ def natural_keys(text):
     '''
     return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
-def load_pair(name_a: str, name_b: str, transforms: transforms.Compose) -> Tuple[torch.Tensor]:
+def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
     try:
         frame_b = cv2.imread(name_b, cv2.IMREAD_GRAYSCALE)
         frame_a = cv2.imread(name_a, cv2.IMREAD_GRAYSCALE)
@@ -36,27 +33,19 @@ def load_pair(name_a: str, name_b: str, transforms: transforms.Compose) -> Tuple
         frame_b = transforms(frame_b)
     return frame_a, frame_b
 
-
-class Transpose:
-    def __call__(self, img: torch.Tensor) -> torch.Tensor:
-        return torch.transpose(img, -1, -2)
-
-class Resize:
-    def __init__(self, size) -> None:
-        self.size = size
-    def __call__(self, img: np.ndarray) -> np.ndarray:
-        return cv2.resize(img, self.size)
-
+class ToTensor:
+    def __init__(self, dtype:  type) -> None:
+        self.dtype = dtype
+    def __call__(self, data: np.ndarray) -> torch.Tensor:
+        return torch.tensor(data, dtype=self.dtype)[None, ...]
 
 class PIVDataset(Dataset):
-    def __init__(self, folder, transform=None):
+    def __init__(self, folder, file_fmt, transform=None):
         self.transform = transform
-        self.root_dir = folder
         filenames = [os.path.join(folder, name) for name 
-            in os.listdir(folder) if name.endswith(".bmp")]
+            in os.listdir(folder) if name.endswith(file_fmt)]
         filenames.sort(key=natural_keys)
         self.img_pairs = list(zip(filenames[::2], filenames[1::2]))
-        
     def __len__(self):
         return len(self.img_pairs)
     
@@ -66,9 +55,8 @@ class PIVDataset(Dataset):
             index = index.tolist()
 
         pair = self.img_pairs[index]
-
-        img_a = cv2.imread(pair[0], cv2.IMREAD_GRAYSCALE)
         img_b = cv2.imread(pair[1], cv2.IMREAD_GRAYSCALE)
+        img_a = cv2.imread(pair[0], cv2.IMREAD_GRAYSCALE)
         if self.transform:
             img_a = self.transform(img_a)
             img_b = self.transform(img_b)
@@ -112,10 +100,11 @@ def correalte_fft(images_a, images_b) -> torch.Tensor:
                                torch.fft.rfft2(images_b)), dim=(-2, -1))
     return corr
 
-def find_peak_position(corr: torch.tensor) -> torch.Tensor:
+
+def find_first_peak_position(corr: torch.Tensor) -> torch.Tensor:
     """Return Tensor (n, c, 2) of peak coordinates"""
     n, c, d, k = corr.shape
-    m = corr.view(n,c, -1).argmax(-1).view(n,c,-1)
+    m = corr.view(n,c, -1).argmax(-1, keepdim=True)
     return torch.cat((m // d, m % k), -1)
 
 def interpolate_nan(
@@ -188,14 +177,16 @@ def interpolate_boarders(vec: np.ndarray) -> np.ndarray:
     
     return vec
 
-def c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray]:
+def c_correlation_to_displacement(
+    corr: torch.Tensor, 
+    n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray]:
     """
     Correlation maps are converted to displacement for each interrogation
     window using the convention that the size of the correlation map
     is 2N -1 where N is the size of the largest interrogation window
     (in frame B) that is called search_area_size
     Inputs:
-        corr : 3D nd.array
+        corr : 4D torch.Tesnsor [batch, channels, :, :]
             contains output of the fft_correlate_images
         n_rows, n_cols : number of interrogation windows, output of the
             get_field_shape
@@ -203,16 +194,15 @@ def c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True) -> Tupl
     # iterate through interrogation widows and search areas
     eps = 1e-7
     n = corr.shape[0]
-    start = time()
-    first_peak = find_peak_position(corr)
+    first_peak = find_first_peak_position(corr)
     # center point of the correlation map
     default_peak_position = np.floor(np.array(corr[0, 0, :, :].shape)/2)
     corr += eps
     corr = corr.cpu().numpy()
     first_peak = first_peak.cpu().numpy()
-    torch.cuda.synchronize()
 
     print(f"corr size {((corr.size * corr.itemsize) / 1024 / 1024):.2f} Mb", end=" ")
+    
 
     temp = fastSubpixel.find_subpixel_position(corr, first_peak, n_rows, n_cols)
     peak = (np.array(temp).T - default_peak_position.T).T
@@ -412,8 +402,8 @@ def piv_iteration(
     frame_b: np.ndarray, 
     x:       np.ndarray, 
     y:       np.ndarray, 
-    u0:       np.ndarray, 
-    v0:       np.ndarray, 
+    u0:      np.ndarray, 
+    v0:      np.ndarray, 
     wind_size: int, 
     device: torch.device):
     iter_proc = time()
@@ -430,9 +420,10 @@ def piv_iteration(
     v = 2*vin + dv
     u = 2*uin + du
 
-    mask = (np.hypot(du, dv) > np.hypot(u0, v0)) * (np.hypot(uin, vin) > 0)
-    v[mask] = v0[mask]
-    u[mask] = u0[mask]
+    mask_u = (du > u0) * (np.rint(u0) > 0)
+    mask_v = (dv > v0) * (np.rint(v0) > 0)
+    v[mask_v] = v0[mask_v]
+    u[mask_u] = u0[mask_u]
     torch.cuda.synchronize()
     print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
     return u, v
@@ -442,15 +433,18 @@ def calc_mean(v_list: list):
     return np.mean(np_list, axis=0).squeeze()
 
 class OfflinePIV:
-    def __init__(self, folder: str, 
-                device: str, 
-                wind_size: int, 
-                overlap: int,
-                iterations: int = 1,
-                dt: int = 1,
-                scale:float = 1.,
-                resize: int = 2,
-                iter_scale:float = 2.) -> None:
+    def __init__(
+        self, folder: str, 
+        device: str,
+        file_fmt: str, 
+        wind_size: int, 
+        overlap: int,
+        iterations: int = 1,
+        dt: int = 1,
+        scale:float = 1.,
+        resize: int = 2,
+        iter_scale:float = 2.
+                ) -> None:
         self._wind_size = wind_size
         self._overlap = overlap
         self._dt = dt
@@ -460,10 +454,8 @@ class OfflinePIV:
         self._scale = scale
         self._device = torch.device(device)
         self._batch_size = 1
-        self._dataset = PIVDataset(folder, 
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),            
-                       ])
+        self._dataset = PIVDataset(folder, file_fmt, 
+                       transform=ToTensor(dtype=torch.uint8)
                       )
         self.loader = torch.utils.data.DataLoader(self._dataset, 
             batch_size=self._batch_size, num_workers=0, pin_memory=True)
@@ -472,30 +464,29 @@ class OfflinePIV:
 
     def __call__(self) -> Generator:
         end_time = time() 
-        with torch.no_grad():
-            for a, b in self.loader:
-                print(f"Load time {(time() - end_time):.3f} sec", end=' ')
-                start = time()
-                a_gpu, b_gpu = a.to(self._device), b.to(self._device)
-                print(f"Convert to {self._device} time {(time() - start):.3f} sec", end =' ')
-                u, v = extended_search_area_piv(a_gpu, b_gpu, window_size=self._wind_size, 
-                                                overlap=self._overlap, dt=1)
-                x, y = get_coordinates(a.shape, self._wind_size, self._overlap)
-                u = resize_iteration(u, iter=self._resize)
-                v = resize_iteration(v, iter=self._resize)
-                x = resize_iteration(x, iter=self._resize).astype(np.int64)
-                y = resize_iteration(y, iter=self._resize).astype(np.int64)
-                bn = b.numpy().squeeze()
-                an = a.numpy().squeeze()
-                wind_size = self._wind_size
-                for _ in range(self._iter-1):
-                    wind_size = int(wind_size//self._iter_scale)
-                    u, v = piv_iteration(an, bn, x, y, u, v, wind_size, self._device)
-                u = np.flip(u, axis=0)
-                v = -np.flip(v, axis=0)
-                yield x, y, u, v
-                end_time = time()
-                print(f"Batch is finished in {(end_time - start):.3f} sec")
+        for a, b in self.loader:
+            print(f"Load time {(time() - end_time):.3f} sec", end=' ')
+            start = time()
+            a_gpu, b_gpu = a.to(self._device), b.to(self._device)
+            print(f"Convert to {self._device} time {(time() - start):.3f} sec", end =' ')
+            u, v = extended_search_area_piv(a_gpu, b_gpu, window_size=self._wind_size, 
+                                            overlap=self._overlap, dt=1)
+            x, y = get_coordinates(a.shape, self._wind_size, self._overlap)
+            u = resize_iteration(u, iter=self._resize)
+            v = resize_iteration(v, iter=self._resize)
+            x = resize_iteration(x, iter=self._resize)
+            y = resize_iteration(y, iter=self._resize)
+            bn = b.numpy().squeeze()
+            an = a.numpy().squeeze()
+            wind_size = self._wind_size
+            for _ in range(self._iter-1):
+                wind_size = int(wind_size//self._iter_scale)
+                u, v = piv_iteration(an, bn, x.astype(np.int64), y.astype(np.int64), u, v, wind_size, self._device)
+            u =  np.flip(u, axis=0)
+            v = -np.flip(v, axis=0)
+            yield x, y, u, v
+            end_time = time()
+            print(f"Batch finished in {(end_time - start):.3f} sec")
 
 
  

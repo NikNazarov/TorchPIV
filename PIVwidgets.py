@@ -1,7 +1,6 @@
-from multiprocessing import dummy
-import os 
 import matplotlib
 import json
+from scipy.interpolate import RectBivariateSpline
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
@@ -437,6 +436,7 @@ class PIVcanvas(MplCanvas):
         self.cb          = None
         self.scale_max   = None
         self.scale_avg   = None
+        self.stramlines  = None
 
         self.fig.canvas.mpl_connect('button_press_event', self.onclick)
         self.img = np.zeros((1000, 1000))*np.nan
@@ -486,10 +486,13 @@ class PIVcanvas(MplCanvas):
         if self.quivers is None:
             if isinstance(self.cb, matplotlib.colorbar.Colorbar):
                 self.cb.remove()
+            if self.stramlines is not None:
+                self.stramlines.lines.remove()
+                self.stramlines.arrows.remove()
             self.img_data = self.axes.pcolormesh(*self.coords, 
                                                 mod_V, 
-                                                cmap=plt.get_cmap('cividis'), 
-                                                shading='auto', vmax=self.scale_avg*2.5)
+                                                cmap=plt.get_cmap('jet'), 
+                                                shading='auto', vmax=self.scale_avg*3)
             self.quivers = self.axes.quiver(*self.coords, Uq, Vq, scale_units="xy", scale=.01, pivot="mid", width=0.002)
             self.x = np.linspace(0, np.max(self.coords[0]), 10)
             self.y = np.linspace(0, np.max(self.coords[1]), 10)
@@ -502,8 +505,18 @@ class PIVcanvas(MplCanvas):
     def restore(self):
         self.coords = None
         self.quivers = None
-        self.cb = None
         
+    def draw_stremlines(self):
+        u, v = self.quiver_data
+        x0 = self.coords[0][0]
+        y0 = self.coords[1][:, 0]
+        xi = np.linspace(x0.min(), x0.max(), y0.size)
+        yi = np.linspace(y0.min(), y0.max(), x0.size)
+        ui = RectBivariateSpline(x0, y0, u.T)(xi, yi)
+        vi = RectBivariateSpline(x0, y0, v.T)(xi, yi)
+        self.streamlines = self.axes.streamplot(xi, yi, ui.T, vi.T, 
+            density=5, linewidth=.5, arrowsize=.5
+            )
 
     def update_canvas(self):
         self.fig.canvas.draw()
@@ -613,6 +626,5 @@ class ControlsWidget(QWidget):
     def show_settings(self, checked):
         if self.settings.isVisible():
             self.settings.hide()
-
         else:
             self.settings.show()

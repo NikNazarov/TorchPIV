@@ -3,8 +3,6 @@ import sys
 import time
 import numpy as np
 import pandas as pd
-from torch import float64
-import torch
 from torchvision import transforms
 from collections import deque
 from PIVwidgets import PIVparams
@@ -50,6 +48,7 @@ class PIVWorker(QObject):
         self.avg_v      = None
         self.is_paused  = False
         self.is_running = True
+        self.idx        = 0
 
     def run(self):
         """Long PIV task.
@@ -59,6 +58,7 @@ class PIVWorker(QObject):
         piv_gen = OfflinePIV(
             folder=self.folder,
             device=self.piv_params.device,
+            file_fmt=self.piv_params.file_fmt,
             wind_size=self.piv_params.wind_size,
             overlap=self.piv_params.overlap,
             resize=self.piv_params.resize,
@@ -67,7 +67,7 @@ class PIVWorker(QObject):
         )
         u_inst = []
         v_inst = [] 
-
+        start = time.time()
         for i, out in enumerate(piv_gen()):
             while self.is_paused and self.is_running: 
                 time.sleep(0)
@@ -77,19 +77,21 @@ class PIVWorker(QObject):
             x, y, u, v = out
             u = u * self.piv_params.scale*1e3/self.piv_params.dt
             v = v * self.piv_params.scale*1e3/self.piv_params.dt
-            if self.avg_u is None:
-                self.avg_u = np.zeros_like(u, dtype=np.float64)
-                self.avg_v = np.zeros_like(v, dtype=np.float64)
+
             u_inst.append(u.astype(np.float64))
             v_inst.append(v.astype(np.float64))
             self.signals.progress.emit((i + 1)/len(piv_gen)*100)
             self.signals.output.emit((x, y, u, v))
+            
+        if self.avg_u is None:
+            self.avg_u = np.zeros_like(u, dtype=np.float64)
+            self.avg_v = np.zeros_like(v, dtype=np.float64)
 
-        torch.cuda.empty_cache()
+        print(f"Avg PIV time {((time.time() - start)/(i+1)*1000):.0f} ms")
         self.signals.progress.emit(0)
         u_inst = np.stack(u_inst, axis=0)
         v_inst = np.stack(v_inst, axis=0)
-        self.avg_u = np.mean(u_inst, axis=0, dtype=np.float64)
+        self.avg_u = np.mean(u_inst, axis=0, dtype=np.float64) 
         self.avg_v = np.mean(v_inst, axis=0, dtype=np.float64)
         self.signals.progress.emit(25)
         uu = np.mean((u_inst - self.avg_u)**2, axis=0, dtype=np.float64)

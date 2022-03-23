@@ -1,7 +1,9 @@
-import numpy
-cimport numpy
+import numpy as np
+cimport numpy as np
 cimport cython
 from libc.math cimport log, isnan
+from cython.parallel import prange
+from cython.view cimport array as cvarray
 
 #Test function
 @cython.boundscheck(False) # turn off bounds-checking for entire function
@@ -39,8 +41,8 @@ def find_subpixel_position(
     bounds_h = corr.shape[-2]
     bounds_w = corr.shape[-1]
 
-    cdef double[:,:,:] u = numpy.empty((n_batches, n_rows, n_cols), dtype=numpy.double)
-    cdef double[:,:,:] v = numpy.empty((n_batches, n_rows, n_cols), dtype=numpy.double)
+    cdef double[:,:,:] u = np.empty((n_batches, n_rows, n_cols), dtype=np.double)
+    cdef double[:,:,:] v = np.empty((n_batches, n_rows, n_cols), dtype=np.double)
 
     
     # Find subpixel fields, gaussian method
@@ -73,7 +75,7 @@ def find_subpixel_position(
         v = _replace_nans(v)
         u = _replace_nans(u)
      
-    return numpy.asarray(u), numpy.asarray(v)
+    return np.asarray(u), np.asarray(v)
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
@@ -124,7 +126,7 @@ cdef double[:,:,:] _replace_nans(double[:,:,:] vec):
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
 def iter_displacement( 
-    float[:, :] image_b,
+    unsigned char[:, :] image_b,
     long long[:, :] x,
     long long[:, :] y,
     long long[:, :] dx,
@@ -133,7 +135,7 @@ def iter_displacement(
     ):
     cdef int i, j, dxi, dyi, new_x, new_y, wind_id, old_y, old_x, bound_y_right, bound_y_left, bound_x_right, bound_x_left
     cdef int wind_half = wind_size//2
-    cdef float[:,:,:] moving_window_array = numpy.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=numpy.float32)
+    cdef unsigned char[:,:,:] moving_window_array = np.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=np.uint8)
     cdef bint valid
     for i in range(x.shape[0]):
         for j in range(x.shape[1]):
@@ -169,7 +171,7 @@ def iter_displacement(
                 new_x = old_x
                 new_y = old_y
             moving_window_array[wind_id, :, :] = image_b[(new_y-wind_half):(new_y+wind_half), (new_x-wind_half):(new_x+wind_half)]
-    return numpy.asarray(moving_window_array)
+    return np.asarray(moving_window_array)
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
@@ -181,11 +183,107 @@ def moving_window(
     ):
     cdef int i, j, new_x, new_y, wind_id
     cdef int wind_half = wind_size//2
-    cdef float[:,:,:] moving_window_array = numpy.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=numpy.float32)
+    cdef float[:,:,:] moving_window_array = np.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=np.float32)
     for i in range(x.shape[0]):
         for j in range(x.shape[1]):
             wind_id = i*x.shape[1]+j
             new_x = x[i, j]
             new_y = y[i, j]
             moving_window_array[wind_id, :, :] = image_a[(new_y-wind_half):(new_y+wind_half), (new_x-wind_half):(new_x+wind_half)]
-    return numpy.asarray(moving_window_array)
+    return np.asarray(moving_window_array)
+
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function 
+cdef float[:,:,:,:] peak2peak_valid_mask(
+    float[:,:,:,:] corr, 
+    long long[:,:,:] first_peak, 
+    int width):
+    '''
+        Create a masked view of the corr
+        Input params:
+        corr[batch, chan, :, :] float32 
+        first_peak[batch, chan, 2] long long - peak positions
+        width int - ignore window size
+    -------
+        Returns:
+        masked corr
+    '''
+
+    cdef int window_h = corr.shape[-2]
+    cdef int window_w = corr.shape[-1]
+    cdef int batch, c, i, j, i_ini, i_fin, j_ini, j_fin
+    # create a masked view of the corr
+
+    for batch in range(corr.shape[0]):
+        # for c in prange(corr.shape[1], nogil=True, num_threads=4):
+        for c in range(corr.shape[1]):
+            i = first_peak[batch, c, 0]
+            j = first_peak[batch, c, 1]
+            i_ini = i - width
+            i_fin = i + width + 1
+            j_ini = j - width
+            j_fin = j + width + 1
+            if i_ini < 0:
+                i_ini = 0
+            if i_fin > window_h:
+                i_fin = window_h
+            if j_ini < 0:
+                j_ini = 0
+            if j_fin > window_w:
+                i_fin = window_w 
+            corr[batch, c, i_ini:i_fin, j_ini:j_fin] = 0
+    return corr
+
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function 
+cdef int[:,:,:] find_max_id(float[:,:,:,:] corr):
+    cdef int[:,:,:] arr = np.empty((corr.shape[0], corr.shape[1], 2), dtype=np.int32)
+    cdef int batch, c, i, j, max_i, max_j
+    cdef float max_val, curr_val
+    for batch in range(corr.shape[0]):
+        for c in range(corr.shape[1]):
+            max_val = 0.0
+            for i in range(corr.shape[2]):
+                for j in range(corr.shape[3]):
+                    curr_val = corr[batch, c, i, j]
+                    if curr_val > max_val:
+                        max_val = curr_val
+                        max_i = i
+                        max_j = j
+            arr[batch, c, 0] = max_i
+            arr[batch, c, 1] = max_j
+    return arr
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function 
+@cython.cdivision(True)
+cpdef np.ndarray validate_peak2peak(float[:,:,:,:] corr, 
+    long long[:,:,:] first_peak, 
+    int width,
+    float ratio):
+    cdef float[:,:,:,:] masked_corr = peak2peak_valid_mask(corr, first_peak, width) 
+    cdef int[:,:,:] second_peak = find_max_id(masked_corr)
+    cdef bint[:,:] arr = np.empty((corr.shape[0], corr.shape[1]), dtype=bool)
+    cdef int batch, c
+    cdef float first_max, second_max
+    for batch in range(corr.shape[0]):
+        for c in range(corr.shape[1]):
+            first_max = corr[
+                batch, c, 
+                first_peak[batch, c, 0], 
+                first_peak[batch, c, 1]
+                ]
+            second_max = corr[
+                batch, c, 
+                second_peak[batch, c, 0], 
+                second_peak[batch, c, 1]
+                ]
+            if first_max / second_max < ratio:
+                arr[batch, c] = True
+            else:
+                arr[batch, c] = False
+    return np.asarray(arr)
+
+# def adaptive_median_filter(float[:,:] u, float[:,:] v):

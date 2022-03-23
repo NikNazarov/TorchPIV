@@ -1,8 +1,11 @@
 import logging
 import traceback
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import RectBivariateSpline
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -10,9 +13,8 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox
 )
-from PIVwidgets import PIVWidget, ControlsWidget
-from workers import PIVWorker, OnlineWorker
-
+from PIVwidgets import ControlsWidget
+from workers import PIVWorker
 
  
 
@@ -20,20 +22,16 @@ class MainWindow(QMainWindow):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.piv_widget = PIVWidget()
         self.controls = ControlsWidget()
         self.controls.piv_button.clicked.connect(self.start_piv)
         self.controls.pause_button.clicked.connect(self.pause_piv)
         self.controls.stop_button.clicked.connect(self.stop_piv)
-        self.timer = QTimer()
         self.calc_thread = None
-        self.timer.timeout.connect(self.piv_widget.piv.update_canvas)
         self.initUI()
    
     def initUI(self):
 
         layout = QVBoxLayout()
-        layout.addWidget(self.piv_widget)
         layout.addWidget(self.controls)
 
         w = QWidget()
@@ -43,44 +41,45 @@ class MainWindow(QMainWindow):
     def exit(self, checked):
         self.controls.close()
         exit()
-        
-    def reportOutput(self, output):
-        x, y, u, v = output
-        self.piv_widget.piv.set_coords(x, y)
-        self.piv_widget.piv.set_quiver(u, v)
+
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
 
     def reportFinish(self, output):
         x, y, u, v = output
-        self.piv_widget.piv.new_image = True
-        self.timer.stop()
-        self.piv_widget.piv.set_coords(x, y)
-        self.piv_widget.piv.set_quiver(u, v)
-        self.piv_widget.piv.draw_stremlines()
-        self.piv_widget.piv.update_canvas()
-        self.piv_widget.piv.restore()
+        mod_V = np.hypot(u, v)
+        Uq =  u/np.max(u)/6
+        Vq =  v/np.max(v)/6
+        avg = np.average(mod_V)
         
+        img_data = plt.pcolormesh(x, y, mod_V, cmap=plt.get_cmap('jet'), 
+                                    shading='auto', vmax=avg*2.5)
+        plt.quiver(x, y, Uq, Vq, scale_units="xy", scale=.01, pivot="mid", width=0.002)
 
+        x0 = x[0]
+        y0 = y[:, 0]
+        xi = np.linspace(x0.min(), x0.max(), y0.size)
+        yi = np.linspace(y0.min(), y0.max(), x0.size)
+        ui = RectBivariateSpline(x0, y0, u.T)(xi, yi)
+        vi = RectBivariateSpline(x0, y0, v.T)(xi, yi)
+        plt.streamplot(xi, yi, ui.T, vi.T, 
+            density=5, linewidth=.5, arrowsize=.5
+            )
+        plt.axis("off")
+        plt.colorbar(img_data)
+        plt.show()
     
     def pause_piv(self):
         if self.calc_thread is None:
             return
         if self.worker.is_paused:
             text = "Pause"
-            self.piv_widget.piv.restore()
         else:
             text = "Resume"
 
         self.controls.pause_button.setText(text)
         self.worker.is_paused = not self.worker.is_paused
-
-        # if self.worker.is_paused:
-        #     u, v = self.worker.avg_u/self.worker.idx, self.worker.avg_v/self.worker.idx
-        #     self.piv_widget.piv.set_quiver(u, v)
-        #     self.piv_widget.piv.draw_stremlines()
-        #     self.piv_widget.piv.update_canvas()
     
     def stop_piv(self):
         if self.calc_thread is None:
@@ -90,8 +89,6 @@ class MainWindow(QMainWindow):
 
 
     def start_piv(self):
-        self.timer.start(4000)
-        self.piv_widget.piv.restore()
         self.controls.settings.state.to_json()
         self.calc_thread = QThread(parent=None)
         piv_params = self.controls.settings.state
@@ -99,6 +96,7 @@ class MainWindow(QMainWindow):
             self.worker = PIVWorker(self.controls.folder_name.toPlainText(),
                                     piv_params=piv_params)
         elif self.controls.regime_box.currentText() == "online":
+            raise NotImplementedError()
             self.worker = OnlineWorker(self.controls.folder_name.toPlainText(),
                                         piv_params=piv_params)
 
@@ -110,7 +108,6 @@ class MainWindow(QMainWindow):
         self.worker.signals.finished.connect(self.calc_thread.quit)
         self.worker.signals.finished.connect(self.worker.deleteLater)
         self.calc_thread.finished.connect(self.calc_thread.deleteLater)
-        self.worker.signals.output.connect(self.reportOutput)
         self.worker.signals.progress.connect(self.reportProgress)
         self.worker.signals.finished.connect(self.reportFinish)
         # Step 6: Start the thread
