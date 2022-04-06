@@ -22,6 +22,10 @@ def natural_keys(text):
     return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
 def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
+    """
+    Helper method, Can be used later in right on fly version of PIV
+    Reads image pair from disk as numpy array and performs transforms on it
+    """
     try:
         frame_b = cv2.imread(name_b, cv2.IMREAD_GRAYSCALE)
         frame_a = cv2.imread(name_a, cv2.IMREAD_GRAYSCALE)
@@ -34,6 +38,9 @@ def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
     return frame_a, frame_b
 
 class ToTensor:
+    """
+    Basic transform class. Converts numpy array to torch.Tensor with dtype
+    """
     def __init__(self, dtype:  type) -> None:
         self.dtype = dtype
     def __call__(self, data: np.ndarray) -> torch.Tensor:
@@ -65,7 +72,7 @@ class PIVDataset(Dataset):
 
 def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tensor:
     """
-    This is a nice numpy trick. The concept of numpy strides should be
+    This is a nice numpy an torch trick. The concept of numpy strides should be
     clear to understand this code.
 
     Basically, we have a 2d array and we want to perform cross-correlation
@@ -95,7 +102,11 @@ def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tens
     ).reshape((shape[0], shape[1]*shape[2], *shape[-2:]))
 
 def correalte_fft(images_a, images_b) -> torch.Tensor:
-    """Compute cross correlation based on fft method"""
+    """
+    Compute cross correlation based on fft method
+    Between two torch.Tensors of shape [1, c, width, height]
+    fft performed over last two dimensions of tensors
+    """
     corr = torch.fft.fftshift(torch.fft.irfft2(torch.fft.rfft2(images_a).conj() *
                                torch.fft.rfft2(images_b)), dim=(-2, -1))
     return corr
@@ -274,11 +285,11 @@ def extended_search_area_piv(
 
     Parameters
     ----------
-    frame_a : 2d torch.tensor
+    frame_a : 2d torch.Tensor
         an two dimensions array of integers containing grey levels of
         the first frame.
 
-    frame_b : 2d torch.tensor
+    frame_b : 2d torch.Tensor
         an two dimensions array of integers containing grey levels of
         the second frame.
 
