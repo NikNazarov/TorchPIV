@@ -1,6 +1,6 @@
 Cython==0.29.23
 matplotlib==3.3.4
-numpy==1.20.1
+numpy>=1.21
 opencv_python==4.5.3.56
 pandas==1.2.4
 PyQt5==5.15.6
