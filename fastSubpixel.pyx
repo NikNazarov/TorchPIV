@@ -20,8 +20,8 @@ cpdef float sum(float[:] arr):
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 @cython.cdivision(True)
 def find_subpixel_position(
-    float[:,:,:,:] corr, 
-    long long[:,:,:] first_peak, 
+    float[:,:,:] corr, 
+    long long[:,:] first_peak, 
     int n_rows, int n_cols):
     """ 
         Find subpixel position gaussian method
@@ -33,43 +33,41 @@ def find_subpixel_position(
         Returns:
         tuple[np.ndarray] u, v [batch, : , :] double
     """
-    cdef int k, m, n_batches, n_channels, peak_i, peak_j, chan_n, i
+    cdef int k, m, n_channels, peak_i, peak_j, chan_n, i
     cdef float c, cl, cr, cd, cu, nom1, nom2, den1, den2
 
-    n_batches = corr.shape[0]
-    n_channels = corr.shape[1] 
+    n_channels = corr.shape[0] 
     bounds_h = corr.shape[-2]
     bounds_w = corr.shape[-1]
 
-    cdef double[:,:,:] u = np.empty((n_batches, n_rows, n_cols), dtype=np.double)
-    cdef double[:,:,:] v = np.empty((n_batches, n_rows, n_cols), dtype=np.double)
+    cdef double[:,:] u = np.empty((n_rows, n_cols), dtype=np.double)
+    cdef double[:,:] v = np.empty((n_rows, n_cols), dtype=np.double)
 
     
     # Find subpixel fields, gaussian method
-    for batch in range(n_batches):
-        for k in range(n_rows):
-            for m in range(n_cols):
-                chan_n = k*n_cols+m
-                peak_i = first_peak[batch, chan_n, 0]
-                peak_j = first_peak[batch, chan_n, 1]  
-                if ((peak_i == 0) | (peak_i == corr.shape[-2]-1) |
-                        (peak_j == 0) | (peak_j == corr.shape[-1]-1)):
-                    v[batch, k, m] = float("nan")
-                    u[batch, k, m] = float("nan")
-                    continue
-                
-                c = corr[batch, chan_n, peak_i, peak_j]
-                cl = corr[batch, chan_n, peak_i - 1, peak_j]
-                cr = corr[batch, chan_n, peak_i + 1, peak_j]
-                cd = corr[batch, chan_n, peak_i, peak_j - 1]
-                cu = corr[batch, chan_n, peak_i, peak_j + 1]
-                nom1 = log(cl) - log(cr)
-                den1 = 2 * log(cl) - 4 * log(c) + 2 * log(cr)
-                nom2 = log(cd) - log(cu)
-                den2 = 2 * log(cd) - 4 * log(c) + 2 * log(cu)
+    for k in range(n_rows):
+        for m in range(n_cols):
+            chan_n = k*n_cols+m
+            peak_i = first_peak[chan_n, 0]
+            peak_j = first_peak[chan_n, 1]  
+            if ((peak_i == 0) | (peak_i == corr.shape[-2]-1) |
+                    (peak_j == 0) | (peak_j == corr.shape[-1]-1)):
+                v[k, m] = float("nan")
+                u[k, m] = float("nan")
+                continue
+            
+            c = corr[chan_n, peak_i, peak_j]
+            cl = corr[chan_n, peak_i - 1, peak_j]
+            cr = corr[chan_n, peak_i + 1, peak_j]
+            cd = corr[chan_n, peak_i, peak_j - 1]
+            cu = corr[chan_n, peak_i, peak_j + 1]
+            nom1 = log(cl) - log(cr)
+            den1 = 2 * log(cl) - 4 * log(c) + 2 * log(cr)
+            nom2 = log(cd) - log(cu)
+            den2 = 2 * log(cd) - 4 * log(c) + 2 * log(cu)
 
-                v[batch, k, m] = peak_i + nom1 / den1
-                u[batch, k, m] = peak_j + nom2 / den2
+            v[k, m] = peak_i + nom1 / den1
+            u[k, m] = peak_j + nom2 / den2
 
     for i in range(3):
         v = _replace_nans(v)
@@ -80,7 +78,7 @@ def find_subpixel_position(
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 @cython.cdivision(True)
-cdef double[:,:,:] _replace_nans(double[:,:,:] vec):
+cdef double[:,:] _replace_nans(double[:,:] vec):
 
     """ 
         Raplace NaNs by averaging neighborhood
@@ -91,34 +89,32 @@ cdef double[:,:,:] _replace_nans(double[:,:,:] vec):
     """
 
     cdef double neighbours[8]
-    cdef int k, m, n_batches, n_rows, n_cols, i, nan_count
-    n_batches = vec.shape[0]
-    n_rows    = vec.shape[1]
-    n_cols    = vec.shape[2]
-    for batch in range(n_batches):
-        for k in range(1, n_rows - 1):
-            for m in range(1, n_cols - 1):
-                if not isnan(vec[batch, k, m]):
-                    continue
-                
-                neighbours[0] = vec[batch, k, m-1]
-                neighbours[1] = vec[batch, k+1, m-1]
-                neighbours[2] = vec[batch, k-1, m-1]
-                neighbours[3] = vec[batch, k-1, m]
-                neighbours[4] = vec[batch, k+1, m]
-                neighbours[5] = vec[batch, k, m+1]
-                neighbours[6] = vec[batch, k+1, m+1]
-                neighbours[7] = vec[batch, k-1, m+1]
-                nan_count = 0
+    cdef int k, m, n_rows, n_cols, i, nan_count
+    n_rows    = vec.shape[0]
+    n_cols    = vec.shape[1]
+    for k in range(1, n_rows - 1):
+        for m in range(1, n_cols - 1):
+            if not isnan(vec[k, m]):
+                continue
+            
+            neighbours[0] = vec[k, m-1]
+            neighbours[1] = vec[k+1, m-1]
+            neighbours[2] = vec[k-1, m-1]
+            neighbours[3] = vec[k-1, m]
+            neighbours[4] = vec[k+1, m]
+            neighbours[5] = vec[k, m+1]
+            neighbours[6] = vec[k+1, m+1]
+            neighbours[7] = vec[k-1, m+1]
+            nan_count = 0
+            for i in range(8):
+                if isnan(neighbours[i]):
+                    nan_count += 1
+            if nan_count < 3:
+                vec[k, m] = 0
                 for i in range(8):
-                    if isnan(neighbours[i]):
-                        nan_count += 1
-                if nan_count < 3:
-                    vec[batch, k, m] = 0
-                    for i in range(8):
-                        if not isnan(neighbours[i]): 
-                            vec[batch, k, m] += neighbours[i]
-                    vec[batch, k, m] = vec[batch, k, m] / (8 - nan_count)
+                    if not isnan(neighbours[i]): 
+                        vec[k, m] += neighbours[i]
+                vec[k, m] = vec[k, m] / (8 - nan_count)
     return vec
 
 
@@ -195,15 +191,15 @@ def moving_window(
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
-cdef float[:,:,:,:] peak2peak_valid_mask(
-    float[:,:,:,:] corr, 
-    long long[:,:,:] first_peak, 
+cdef float[:,:,:] peak2peak_valid_mask(
+    float[:,:,:] corr, 
+    long long[:,:] first_peak, 
     int width):
     '''
         Create a masked view of the corr
         Input params:
-        corr[batch, chan, :, :] float32 
-        first_peak[batch, chan, 2] long long - peak positions
+        corr[chan, :, :] float32 
+        first_peak[chan, 2] long long - peak positions
         width int - ignore window size
     -------
         Returns:
@@ -212,78 +208,75 @@ cdef float[:,:,:,:] peak2peak_valid_mask(
 
     cdef int window_h = corr.shape[-2]
     cdef int window_w = corr.shape[-1]
-    cdef int batch, c, i, j, i_ini, i_fin, j_ini, j_fin
+    cdef int c, i, j, i_ini, i_fin, j_ini, j_fin
     # create a masked view of the corr
 
-    for batch in range(corr.shape[0]):
         # for c in prange(corr.shape[1], nogil=True, num_threads=4):
-        for c in range(corr.shape[1]):
-            i = first_peak[batch, c, 0]
-            j = first_peak[batch, c, 1]
-            i_ini = i - width
-            i_fin = i + width + 1
-            j_ini = j - width
-            j_fin = j + width + 1
-            if i_ini < 0:
-                i_ini = 0
-            if i_fin > window_h:
-                i_fin = window_h
-            if j_ini < 0:
-                j_ini = 0
-            if j_fin > window_w:
-                i_fin = window_w 
-            corr[batch, c, i_ini:i_fin, j_ini:j_fin] = 0
+    for c in range(corr.shape[0]):
+        i = first_peak[c, 0]
+        j = first_peak[c, 1]
+        i_ini = i - width
+        i_fin = i + width + 1
+        j_ini = j - width
+        j_fin = j + width + 1
+        if i_ini < 0:
+            i_ini = 0
+        if i_fin > window_h:
+            i_fin = window_h
+        if j_ini < 0:
+            j_ini = 0
+        if j_fin > window_w:
+            i_fin = window_w 
+        corr[c, i_ini:i_fin, j_ini:j_fin] = 0
     return corr
 
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
-cdef int[:,:,:] find_max_id(float[:,:,:,:] corr):
-    cdef int[:,:,:] arr = np.empty((corr.shape[0], corr.shape[1], 2), dtype=np.int32)
-    cdef int batch, c, i, j, max_i, max_j
+cdef int[:,:] find_max_id(float[:,:,:] corr):
+    cdef int[:,:] arr = np.empty((corr.shape[0], 2), dtype=np.int32)
+    cdef int c, i, j, max_i, max_j
     cdef float max_val, curr_val
-    for batch in range(corr.shape[0]):
-        for c in range(corr.shape[1]):
-            max_val = 0.0
-            for i in range(corr.shape[2]):
-                for j in range(corr.shape[3]):
-                    curr_val = corr[batch, c, i, j]
-                    if curr_val > max_val:
-                        max_val = curr_val
-                        max_i = i
-                        max_j = j
-            arr[batch, c, 0] = max_i
-            arr[batch, c, 1] = max_j
+    for c in range(corr.shape[0]):
+        max_val = 0.0
+        for i in range(corr.shape[1]):
+            for j in range(corr.shape[2]):
+                curr_val = corr[c, i, j]
+                if curr_val > max_val:
+                    max_val = curr_val
+                    max_i = i
+                    max_j = j
+        arr[c, 0] = max_i
+        arr[c, 1] = max_j
     return arr
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
 @cython.cdivision(True)
-cpdef np.ndarray validate_peak2peak(float[:,:,:,:] corr, 
-    long long[:,:,:] first_peak, 
+cpdef np.ndarray validate_peak2peak(float[:,:,:] corr, 
+    long long[:,:] first_peak, 
     int width,
     float ratio):
-    cdef float[:,:,:,:] masked_corr = peak2peak_valid_mask(corr, first_peak, width) 
-    cdef int[:,:,:] second_peak = find_max_id(masked_corr)
-    cdef bint[:,:] arr = np.empty((corr.shape[0], corr.shape[1]), dtype=bool)
-    cdef int batch, c
+    cdef float[:,:,:] masked_corr = peak2peak_valid_mask(corr, first_peak, width) 
+    cdef int[:,:] second_peak = find_max_id(masked_corr)
+    cdef bint[:] arr = np.empty((corr.shape[0]), dtype=bool)
+    cdef int c
     cdef float first_max, second_max
-    for batch in range(corr.shape[0]):
-        for c in range(corr.shape[1]):
-            first_max = corr[
-                batch, c, 
-                first_peak[batch, c, 0], 
-                first_peak[batch, c, 1]
-                ]
-            second_max = corr[
-                batch, c, 
-                second_peak[batch, c, 0], 
-                second_peak[batch, c, 1]
-                ]
-            if first_max / second_max < ratio:
-                arr[batch, c] = True
-            else:
-                arr[batch, c] = False
+    for c in range(corr.shape[0]):
+        first_max = corr[
+            c, 
+            first_peak[c, 0], 
+            first_peak[c, 1]
+            ]
+        second_max = corr[
+            c, 
+            second_peak[c, 0], 
+            second_peak[c, 1]
+            ]
+        if first_max / second_max < ratio:
+            arr[c] = True
+        else:
+            arr[c] = False
     return np.asarray(arr)
 
 # def adaptive_median_filter(float[:,:] u, float[:,:] v):

@@ -13,6 +13,10 @@ from time import time
 def atoi(text):
     return int(text) if text.isdigit() else text
 
+def free_cuda_memory():
+    if torch.cuda.is_available(): torch.cuda.empty_cache() 
+
+
 def natural_keys(text):
     '''
     alist.sort(key=natural_keys) sorts in human order
@@ -44,7 +48,7 @@ class ToTensor:
     def __init__(self, dtype:  type) -> None:
         self.dtype = dtype
     def __call__(self, data: np.ndarray) -> torch.Tensor:
-        return torch.tensor(data, dtype=self.dtype)[None, ...]
+        return torch.tensor(data, dtype=self.dtype)
 
 class PIVDataset(Dataset):
     def __init__(self, folder, file_fmt, transform=None):
@@ -62,6 +66,7 @@ class PIVDataset(Dataset):
             index = index.tolist()
 
         pair = self.img_pairs[index]
+        #imread function working only with latin file path
         img_b = cv2.imread(pair[1], cv2.IMREAD_GRAYSCALE)
         img_a = cv2.imread(pair[0], cv2.IMREAD_GRAYSCALE)
         if self.transform:
@@ -84,14 +89,12 @@ def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tens
     """
     shape = array.shape
     strides = (
-        shape[-2]*shape[-1],
         shape[-1] * (window_size - overlap),
         (window_size - overlap),
         shape[-1],
         1
     )
     shape = (
-        shape[0],
         int((shape[-2] - window_size) / (window_size - overlap)) + 1,
         int((shape[-1] - window_size) / (window_size - overlap)) + 1,
         window_size,
@@ -99,7 +102,7 @@ def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tens
     )
     return torch.as_strided(
         array, size=shape, stride=strides 
-    ).reshape((shape[0], shape[1]*shape[2], *shape[-2:]))
+    ).reshape(-1, window_size, window_size)
 
 def correalte_fft(images_a, images_b) -> torch.Tensor:
     """
@@ -113,9 +116,9 @@ def correalte_fft(images_a, images_b) -> torch.Tensor:
 
 
 def find_first_peak_position(corr: torch.Tensor) -> torch.Tensor:
-    """Return Tensor (n, c, 2) of peak coordinates"""
-    n, c, d, k = corr.shape
-    m = corr.view(n,c, -1).argmax(-1, keepdim=True)
+    """Return Tensor (c, 2) of peak coordinates"""
+    c, d, k = corr.shape
+    m = corr.view(c, -1).argmax(-1, keepdim=True)
     return torch.cat((m // d, m % k), -1)
 
 def interpolate_nan(
@@ -204,10 +207,9 @@ def c_correlation_to_displacement(
     """
     # iterate through interrogation widows and search areas
     eps = 1e-7
-    n = corr.shape[0]
     first_peak = find_first_peak_position(corr)
     # center point of the correlation map
-    default_peak_position = np.floor(np.array(corr[0, 0, :, :].shape)/2)
+    default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
     corr += eps
     corr = corr.cpu().numpy()
     first_peak = first_peak.cpu().numpy()
@@ -271,8 +273,7 @@ def extended_search_area_piv(
     frame_b,
     window_size,
     overlap=0,
-    dt=1,
-    search_area_size=None,
+    dt=1
 ) -> Tuple[np.ndarray]:
     """Standard PIV cross-correlation algorithm, with an option for
     extended area search that increased dynamic range. The search region
@@ -305,22 +306,17 @@ def extended_search_area_piv(
 
     """
 
-    # check the inputs for validity
-    if search_area_size is None:
-        search_area_size = window_size
-
+   
     if overlap >= window_size:
         raise ValueError("Overlap has to be smaller than the window_size")
 
-    if search_area_size < window_size:
-        raise ValueError("Search size cannot be smaller than the window_size")
     if (window_size > frame_a.shape[-2]) or (window_size > frame_a.shape[-1]):
         raise ValueError("window size cannot be larger than the image")
     torch.cuda.synchronize()
     start = time()
-    _, _, n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=search_area_size, overlap=overlap)
-    aa = moving_window_array(frame_a, search_area_size, overlap)
-    bb = moving_window_array(frame_b, search_area_size, overlap)
+    n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=window_size, overlap=overlap)
+    aa = moving_window_array(frame_a, window_size, overlap)
+    bb = moving_window_array(frame_b, window_size, overlap)
     torch.cuda.synchronize()
     print(f"moving window time {(time() - start):.3f} sec", end=' ')
     torch.cuda.synchronize()
@@ -423,11 +419,10 @@ def piv_iteration(
 
     bb2 = torch.from_numpy(fastSubpixel.iter_displacement(frame_b, x, y, uin, vin, wind_size))
     aa2 = torch.from_numpy(fastSubpixel.iter_displacement(frame_a, x, y, -uin, -vin, wind_size))
-    aa2, bb2 = aa2[None,...].to(device), bb2[None,...].to(device)
+    aa2, bb2 = aa2.to(device), bb2.to(device)
     corr = correalte_fft(aa2, bb2)
     du, dv = c_correlation_to_displacement(corr, x.shape[-2], x.shape[-1], interp_nan=True)
-    du = du.squeeze()
-    dv = dv.squeeze()
+
     v = 2*vin + dv
     u = 2*uin + du
 
@@ -463,13 +458,14 @@ class OfflinePIV:
         self._iter_scale = iter_scale
         self._resize = resize
         self._scale = scale
+        
         self._device = torch.device(device)
-        self._batch_size = 1
         self._dataset = PIVDataset(folder, file_fmt, 
                        transform=ToTensor(dtype=torch.uint8)
                       )
         self.loader = torch.utils.data.DataLoader(self._dataset, 
-            batch_size=self._batch_size, num_workers=0, pin_memory=True)
+            batch_size=None, num_workers=0, pin_memory=True)
+
     def __len__(self) -> int:
         return len(self._dataset)
 
@@ -487,17 +483,21 @@ class OfflinePIV:
             v = resize_iteration(v, iter=self._resize)
             x = resize_iteration(x, iter=self._resize)
             y = resize_iteration(y, iter=self._resize)
-            bn = b.numpy().squeeze()
-            an = a.numpy().squeeze()
+            bn = b.numpy()
+            an = a.numpy()
             wind_size = self._wind_size
             for _ in range(self._iter-1):
                 wind_size = int(wind_size//self._iter_scale)
                 u, v = piv_iteration(an, bn, x.astype(np.int64), y.astype(np.int64), u, v, wind_size, self._device)
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
+            del a_gpu
+            del b_gpu
             yield x, y, u, v
             end_time = time()
             print(f"Batch finished in {(end_time - start):.3f} sec")
+            
+        
 
 
  
