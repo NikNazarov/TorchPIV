@@ -26,12 +26,12 @@ def find_subpixel_position(
     """ 
         Find subpixel position gaussian method
         Input params:
-        corr[batch, chan, :, :] float32 
-        first_peak[batch, chan, 2] long long - peak positions
+        corr[chan, :, :] float32 
+        first_peak[chan, 2] long long - peak positions
         n_rows int - velocity field shape[0]
         n_cols int - velocity field shape[1]
         Returns:
-        tuple[np.ndarray] u, v [batch, : , :] double
+        tuple[np.ndarray] u, v [: , :] double
     """
     cdef int k, m, n_channels, peak_i, peak_j, chan_n, i
     cdef float c, cl, cr, cd, cu, nom1, nom2, den1, den2
@@ -83,9 +83,9 @@ cdef double[:,:] _replace_nans(double[:,:] vec):
     """ 
         Raplace NaNs by averaging neighborhood
         Input params:
-        vec[:,:,:] double 
+        vec[:,:] double 
         Returns:
-        vec[:,:,:] double
+        vec[:,:] double
     """
 
     cdef double neighbours[8]
