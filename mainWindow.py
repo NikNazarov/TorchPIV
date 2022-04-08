@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox
 )
-from PIVwidgets import PIVWidget, ControlsWidget
+from PIVwidgets import PIVWidget, ControlsWidget, show_message
 from workers import PIVWorker, OnlineWorker
 
 
@@ -53,6 +53,9 @@ class MainWindow(QMainWindow):
         self.controls.pbar.setValue(value)
 
     def reportFinish(self, output):
+        show_message(
+            f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
+            )
         x, y, u, v = output
         self.piv_widget.piv.new_image = True
         self.timer.stop()
@@ -61,6 +64,8 @@ class MainWindow(QMainWindow):
         self.piv_widget.piv.draw_stremlines()
         self.piv_widget.piv.update_canvas()
         self.piv_widget.piv.restore()
+
+
         
 
     

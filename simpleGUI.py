@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox
 )
-from PIVwidgets import ControlsWidget
+from PIVwidgets import ControlsWidget, show_message
 from workers import PIVWorker
 
  
@@ -47,6 +47,9 @@ class MainWindow(QMainWindow):
         self.controls.pbar.setValue(value)
 
     def reportFinish(self, output):
+        show_message(
+            f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
+            )
         x, y, u, v = output
         mod_V = np.hypot(u, v)
         Uq =  u/np.max(u)/6
@@ -69,6 +72,7 @@ class MainWindow(QMainWindow):
         plt.axis("off")
         plt.colorbar(img_data)
         plt.show()
+        
     
     def pause_piv(self):
         if self.calc_thread is None:
