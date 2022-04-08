@@ -7,7 +7,7 @@ from torchvision import transforms
 from collections import deque
 from PIVwidgets import PIVparams
 from PyQt5.QtCore import QObject, pyqtSignal, QProcess
-from torchPIV import OfflinePIV, extended_search_area_piv, get_coordinates, load_pair
+from torchPIV import OfflinePIV, extended_search_area_piv, get_coordinates, load_pair, free_cuda_memory
 
 
 def uniquify(path):
@@ -82,7 +82,9 @@ class PIVWorker(QObject):
             v_inst.append(v.astype(np.float64))
             self.signals.progress.emit((i + 1)/len(piv_gen)*100)
             self.signals.output.emit((x, y, u, v))
-            
+        
+        free_cuda_memory()
+        
         if self.avg_u is None:
             self.avg_u = np.zeros_like(u, dtype=np.float64)
             self.avg_v = np.zeros_like(v, dtype=np.float64)
