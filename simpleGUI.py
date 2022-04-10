@@ -3,7 +3,7 @@ import traceback
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import LinearNDInterpolator
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox
 )
+from torch import meshgrid
 from PIVwidgets import ControlsWidget, show_message
 from workers import PIVWorker
 
@@ -62,11 +63,20 @@ class MainWindow(QMainWindow):
 
         x0 = x[0]
         y0 = y[:, 0]
-        xi = np.linspace(x0.min(), x0.max(), y0.size)
-        yi = np.linspace(y0.min(), y0.max(), x0.size)
-        ui = RectBivariateSpline(x0, y0, u.T)(xi, yi)
-        vi = RectBivariateSpline(x0, y0, v.T)(xi, yi)
-        plt.streamplot(xi, yi, ui.T, vi.T, 
+        xi = np.linspace(x0.min(), x0.max(), x0.size)
+        yi = np.linspace(y0.min(), y0.max(), y0.size)
+        xflat = x.reshape(-1)
+        yflat = y.reshape(-1)
+        uflat = u.reshape(-1)
+        vflat = v.reshape(-1)
+        interp_ui = LinearNDInterpolator(list(zip(xflat, yflat)), uflat)
+        interp_vi = LinearNDInterpolator(list(zip(xflat, yflat)), vflat)
+        xi, yi = np.meshgrid(xi, yi)
+        ui = interp_ui(xi, yi)
+        vi = interp_vi(xi, yi)
+        print(ui.shape)
+        print(vi.shape)
+        plt.streamplot(xi, yi, ui, vi, 
             density=5, linewidth=.5, arrowsize=.5
             )
         plt.axis("off")

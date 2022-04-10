@@ -1,6 +1,6 @@
 import matplotlib
 import json
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import LinearNDInterpolator
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
@@ -21,7 +21,15 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QWidget,
     QComboBox,
+    QMessageBox
 )
+def show_message(message:str) -> None:
+    msgbox = QMessageBox()
+    msgbox.setIcon(QMessageBox.Information)
+    msgbox.setText(message)
+    msgbox.setStandardButtons(QMessageBox.Ok)
+    msgbox.buttonClicked.connect(msgbox.close)
+    msgbox.exec_()
 
 def set_width(obj: object, target_type: type, width: int):
     '''
@@ -508,13 +516,21 @@ class PIVcanvas(MplCanvas):
         
     def draw_stremlines(self):
         u, v = self.quiver_data
-        x0 = self.coords[0][0]
-        y0 = self.coords[1][:, 0]
-        xi = np.linspace(x0.min(), x0.max(), y0.size)
-        yi = np.linspace(y0.min(), y0.max(), x0.size)
-        ui = RectBivariateSpline(x0, y0, u.T)(xi, yi)
-        vi = RectBivariateSpline(x0, y0, v.T)(xi, yi)
-        self.streamlines = self.axes.streamplot(xi, yi, ui.T, vi.T, 
+        x, y = self.coords
+        x0 = x[0]
+        y0 = y[:, 0]
+        xi = np.linspace(x0.min(), x0.max(), x0.size)
+        yi = np.linspace(y0.min(), y0.max(), y0.size)
+        xflat = x.reshape(-1)
+        yflat = y.reshape(-1)
+        uflat = u.reshape(-1)
+        vflat = v.reshape(-1)
+        interp_ui = LinearNDInterpolator(list(zip(xflat, yflat)), uflat)
+        interp_vi = LinearNDInterpolator(list(zip(xflat, yflat)), vflat)
+        xi, yi = np.meshgrid(xi, yi)
+        ui = interp_ui(xi, yi)
+        vi = interp_vi(xi, yi)
+        self.streamlines = self.axes.streamplot(xi, yi, ui, vi, 
             density=5, linewidth=.5, arrowsize=.5
             )
 
