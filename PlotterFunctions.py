@@ -100,17 +100,10 @@ class Singleton:
 class Database(Singleton):
     def __init__(self):
         Singleton.__init__(self)
-    
+        self._data: dict = {}
+
     def get(self):
         return self._data
 
-    def load(self, name):
-        try:
-            data = pd.read_csv(name, sep=None, engine="python")
-            grid = find_grid(data)
-            self._data = reshape_data(data, grid)
-        except Exception as e:
-            show_message(f"Make sure that file is properly specified\n caught Exception{e}")
-            return
-        _, name = os.path.split(name)
-        self.name, _ = os.path.splitext(name)
+    def set(self, data: dict):
+        self._data = data

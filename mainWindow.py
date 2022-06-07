@@ -6,12 +6,13 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
     QMessageBox
 )
 from PIVwidgets import PIVWidget, ControlsWidget
-from PlotterFunctions import show_message
+from PlotterFunctions import show_message, Database
 from workers import PIVWorker, OnlineWorker
 
 
@@ -23,20 +24,22 @@ class MainWindow(QMainWindow):
         super().__init__(*args, **kwargs)
         self.piv_widget = PIVWidget()
         self.controls = ControlsWidget()
+        self.tabs = QTabWidget()
+        self.data = Database()
         self.controls.piv_button.clicked.connect(self.start_piv)
         self.controls.pause_button.clicked.connect(self.pause_piv)
         self.controls.stop_button.clicked.connect(self.stop_piv)
         self.timer = QTimer()
         self.calc_thread = None
-        self.timer.timeout.connect(self.piv_widget.piv.update_canvas)
+        self.timer.timeout.connect(self.piv_widget.piv_view.piv.update_canvas)
         self.initUI()
    
     def initUI(self):
-
+        
+        self.tabs.addTab(self.controls, "Settings")
+        self.tabs.addTab(self.piv_widget, "PIVviewer")
         layout = QVBoxLayout()
-        layout.addWidget(self.piv_widget)
-        layout.addWidget(self.controls)
-
+        layout.addWidget(self.tabs)
         w = QWidget()
         w.setLayout(layout)
         self.setCentralWidget(w)
@@ -47,8 +50,13 @@ class MainWindow(QMainWindow):
         
     def reportOutput(self, output):
         x, y, u, v = output
-        self.piv_widget.piv.set_coords(x, y)
-        self.piv_widget.piv.set_quiver(u, v)
+        self.data.set({
+            "x": x,
+            "y": y,
+            "u": u,
+            "v": v
+        })
+        self.piv_widget.piv_view.piv.set_field("v")
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
@@ -58,13 +66,14 @@ class MainWindow(QMainWindow):
             f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
             )
         x, y, u, v = output
-        self.piv_widget.piv.new_image = True
+        self.data.set({
+            "x": x,
+            "y": y,
+            "u": u,
+            "v": v
+        })
         self.timer.stop()
-        self.piv_widget.piv.set_coords(x, y)
-        self.piv_widget.piv.set_quiver(u, v)
-        self.piv_widget.piv.draw_stremlines()
-        self.piv_widget.piv.update_canvas()
-        self.piv_widget.piv.restore()
+        self.piv_widget.piv_view.piv.update_canvas()
 
 
         
@@ -75,7 +84,6 @@ class MainWindow(QMainWindow):
             return
         if self.worker.is_paused:
             text = "Pause"
-            self.piv_widget.piv.restore()
         else:
             text = "Resume"
 
@@ -97,7 +105,6 @@ class MainWindow(QMainWindow):
 
     def start_piv(self):
         self.timer.start(4000)
-        self.piv_widget.piv.restore()
         self.controls.settings.state.to_json()
         self.calc_thread = QThread(parent=None)
         piv_params = self.controls.settings.state

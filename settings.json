@@ -1,1 +1,1 @@
-{"device": "cuda:0", "dt": 11, "file_fmt": ".bmp", "folder": "C:/Users/LabPC/Desktop/exp", "iter_scale": 2.0, "iterations": 3, "overlap": 64, "resize": 2, "save_dir": "Out", "save_opt": "Save statistics", "scale": 0.0165364, "wind_size": 128}
+{"device": "cuda:0", "dt": 11, "file_fmt": ".bmp", "folder": "C:/Users/LabPC/Desktop/exp", "iter_scale": 2.0, "iterations": 2, "overlap": 32, "resize": 2, "save_dir": "Out", "save_opt": "Save statistics", "scale": 0.0165364, "wind_size": 64}

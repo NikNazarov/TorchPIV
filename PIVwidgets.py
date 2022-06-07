@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 plt.ioff()
 import numpy as np
 from PyQt5.QtGui import QDoubleValidator, QIntValidator
-from PyQt5.QtCore import Qt, QLocale, pyqtSignal
+from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PlotterFunctions import Database, show_message, autoscale_y, make_name, save_table, set_width
@@ -22,7 +22,35 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QWidget,
     QComboBox,
+    QLCDNumber,
+    QSlider
 )
+
+class ListSlider(QSlider):
+    elementChanged = pyqtSignal(int)
+
+    def __init__(self, values=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setMinimum(0)
+        self._values = []
+        self.valueChanged.connect(self._on_value_changed)
+        self.values = values or []
+
+    @property
+    def values(self):
+        return self._values
+
+    @values.setter
+    def values(self, values):
+        self._values = values
+        maximum = max(0, len(self._values) - 1)
+        self.setMaximum(maximum)
+        self.setValue(0)
+
+    @pyqtSlot(int)
+    def _on_value_changed(self, index):
+        value = self.values[index]
+        self.elementChanged.emit(value)
 
 
 class PIVparams(object):
@@ -520,7 +548,7 @@ class PIVcanvas(MplCanvas):
 
 
 
-class PIVWidget(QWidget):
+class PIVview(QWidget):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.piv     = PIVcanvas()
@@ -544,7 +572,182 @@ class PIVWidget(QWidget):
         layout.addLayout(profile_box)
 
         self.setLayout(layout)
+
+class PIVcontrols(QWidget):
+    fieldchosen = pyqtSignal(str)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.filename = QTextEdit()
+        self.regime_box = QComboBox()
+        self.data = Database()
+        self.setFixedHeight(120)
+
+        self.initUI()
+    def initUI(self):
+        file_box = QHBoxLayout()
+        file_button = QPushButton("Select file")
+        file_button.clicked.connect(self.open_dialog)
+        self.filename.setFixedHeight(35)
+        file_box.addWidget(self.filename)
+        file_box.addWidget(file_button)
+
+        control_v = QVBoxLayout()
+
+        control_v.addLayout(file_box)
+
+        settings_h = QHBoxLayout()
+
+        settings_h.addWidget(self.regime_box)
+
+        control_v.addLayout(settings_h)
+
+        bottom_left_frame = QFrame()
+        bottom_left_frame.setLayout(control_v)
+        bottom_left_frame.setLineWidth(1)
+        bottom_left_frame.setFrameStyle(QFrame.Panel)        
+
+
+        self.pos_scale_slider = ListSlider(orientation=Qt.Horizontal)
+        self.neg_scale_slider = ListSlider(orientation=Qt.Horizontal)
+        self.pos_scale_slider.setFixedWidth(200)
+        self.neg_scale_slider.setFixedWidth(200)
+
+        self.slider_LCD = QLCDNumber()
+        self.slider_LCD.setFrameShape(QFrame.NoFrame)
+        self.slider_LCD.setSegmentStyle(QLCDNumber.Flat)
+
+        self.save_btn = QPushButton("Save profile")
+        self.slider = ListSlider(orientation=Qt.Horizontal)
+        self.streamlines_btn = QPushButton("Show streamlines")
+        self.streamlines_btn.clicked.connect(self.hide_streamlines)
+        self.orientation_qbox = QComboBox()
+        self.orientation_qbox.setFixedWidth(100)
+        self.hide_lines = QPushButton("Hide line")
+        self.hide_lines.clicked.connect(self.hide_profile_lines)
+        slider_box = QHBoxLayout()
+        slider_box.addWidget(self.slider)
+        slider_box.addWidget(self.slider_LCD)
+        slider_box.addWidget(self.orientation_qbox)
+        hide_box = QHBoxLayout()
+        hide_box.addWidget(self.save_btn)
+        hide_box.addWidget(self.streamlines_btn)
+        hide_box.addWidget(self.hide_lines)
+        bottom_right_box = QVBoxLayout()
+        bottom_right_box.addLayout(slider_box)
+        bottom_right_box.addLayout(hide_box)
+
         
+        bottom_right_frame = QFrame()
+        bottom_right_frame.setLayout(bottom_right_box)
+        bottom_right_frame.setLineWidth(1)
+        bottom_right_frame.setFrameStyle(QFrame.Panel)
+
+        self.top_LCD = QLCDNumber()
+        self.bot_LCD = QLCDNumber()
+        self.top_LCD.setFrameShape(QFrame.NoFrame)
+        self.bot_LCD.setFrameShape(QFrame.NoFrame)
+        self.top_LCD.setSegmentStyle(QLCDNumber.Flat)
+        self.bot_LCD.setSegmentStyle(QLCDNumber.Flat)
+
+        slider_top_box = QHBoxLayout()
+        slider_top_box.addWidget(QLabel("Max scale"))
+        slider_top_box.addWidget(self.top_LCD)
+
+        slider_bot_box = QHBoxLayout()
+        slider_bot_box.addWidget(QLabel("Min scale"))
+        slider_bot_box.addWidget(self.bot_LCD)
+
+        sliders_box = QVBoxLayout()
+        sliders_box.addLayout(slider_top_box)
+        sliders_box.addWidget(self.pos_scale_slider)
+        sliders_box.addLayout(slider_bot_box)
+        sliders_box.addWidget(self.neg_scale_slider)
+
+        main_box = QHBoxLayout()
+        main_box.addWidget(bottom_left_frame)
+        main_box.addLayout(sliders_box)
+        main_box.addWidget(bottom_right_frame)
+
+        self.setLayout(main_box)
+    
+    def hide_streamlines(self):
+        if self.streamlines_btn.text() == "Hide streamlines":
+            self.streamlines_btn.setText("Show streamlines")
+        else:
+            self.streamlines_btn.setText("Hide streamlines")
+
+    def hide_profile_lines(self):
+        if self.hide_lines.text() == "Hide line":
+            self.hide_lines.setText("Show line")
+        else:
+            self.hide_lines.setText("Hide line")
+
+    @pyqtSlot(str)
+    def on_activated(self, key):
+        if key is None:
+            return
+        self.fieldchosen.emit(key)
+
+    @pyqtSlot(str)
+    def on_orientation(self, key):
+        piv_data = self.data.get()
+        if key == "Horizontal":
+            self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
+        else:
+            self.slider.values = piv_data[[*piv_data.keys()][0]][0]
+
+        self.fieldchosen.emit(key)
+        
+    def open_dialog(self, checked):
+        name, check = QFileDialog.getOpenFileName()
+        if not check:
+            return
+        self.filename.setText(name)
+        self.data.load(name)
+        piv_data = self.data.get()
+        self.regime_box.clear()
+        self.regime_box.addItems([*piv_data.keys()][2:])
+        self.regime_box.activated[str].connect(self.on_activated)
+        self.orientation_qbox.clear()
+        self.orientation_qbox.addItems(["Horizontal", "Vertical"])
+        self.orientation_qbox.activated[str].connect(self.on_orientation)
+        self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
+        self.slider.setValue(0)
+        self.pos_scale_slider.values = list(range(2000))
+        self.pos_scale_slider.setValue(1999)
+        self.neg_scale_slider.values = list(range(2000))
+        self.neg_scale_slider.setValue(0)
+        
+class PIVWidget(QWidget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.piv_view = PIVview()
+        self.controls = PIVcontrols()
+        self.controls.hide_lines.clicked.connect(self.piv_view.piv.hide_line)
+        self.controls.save_btn.clicked.connect(self.piv_view.profile.save_profile)
+        self.controls.regime_box.activated[str].connect(self.piv_view.piv.set_field)
+        self.controls.regime_box.activated[str].connect(self.piv_view.profile.set_field)
+        self.controls.slider.valueChanged.connect(self.piv_view.piv.draw_line)
+        self.controls.slider.valueChanged.connect(self.piv_view.profile.draw_line)
+        self.controls.pos_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_max)
+        self.controls.neg_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_min)
+        self.controls.streamlines_btn.clicked.connect(self.piv_view.piv.hide_streamlines)
+        self.controls.orientation_qbox.activated[str].connect(self.piv_view.profile.change_orientation)
+        self.controls.orientation_qbox.activated[str].connect(self.piv_view.piv.change_orientation)
+        self.piv_view.piv.topChanged.connect(self.controls.top_LCD.display)
+        self.piv_view.piv.botChanged.connect(self.controls.bot_LCD.display)
+        self.piv_view.piv.lineChanged.connect(self.controls.slider_LCD.display)
+
+        self.initUI()
+   
+    def initUI(self):
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.piv_view)
+        layout.addWidget(self.controls)
+        self.setLayout(layout)
+
 class ControlsWidget(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
