@@ -479,20 +479,20 @@ class OfflinePIV:
             u, v = extended_search_area_piv(a_gpu, b_gpu, window_size=self._wind_size, 
                                             overlap=self._overlap, dt=1)
             x, y = get_coordinates(a.shape, self._wind_size, self._overlap)
-            u = resize_iteration(u, iter=self._resize)
-            v = resize_iteration(v, iter=self._resize)
-            x = resize_iteration(x, iter=self._resize)
-            y = resize_iteration(y, iter=self._resize)
+
             bn = b.numpy()
             an = a.numpy()
             wind_size = self._wind_size
             for _ in range(self._iter-1):
+                u = resize_iteration(u, iter=self._resize)
+                v = resize_iteration(v, iter=self._resize)
+                x = resize_iteration(x, iter=self._resize)
+                y = resize_iteration(y, iter=self._resize)
                 wind_size = int(wind_size//self._iter_scale)
                 u, v = piv_iteration(an, bn, x.astype(np.int64), y.astype(np.int64), u, v, wind_size, self._device)
+
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
-            del a_gpu
-            del b_gpu
             yield x, y, u, v
             end_time = time()
             print(f"Batch finished in {(end_time - start):.3f} sec")

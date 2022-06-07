@@ -10,7 +10,8 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox
 )
-from PIVwidgets import PIVWidget, ControlsWidget, show_message
+from PIVwidgets import PIVWidget, ControlsWidget
+from PlotterFunctions import show_message
 from workers import PIVWorker, OnlineWorker
 
 

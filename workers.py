@@ -7,28 +7,8 @@ from torchvision import transforms
 from collections import deque
 from PIVwidgets import PIVparams
 from PyQt5.QtCore import QObject, pyqtSignal, QProcess
+from PlotterFunctions import save_table, uniquify
 from torchPIV import OfflinePIV, extended_search_area_piv, get_coordinates, load_pair, free_cuda_memory
-
-
-def uniquify(path):
-    filename, extension = os.path.splitext(path)
-    counter = 1
-
-    while os.path.exists(path):
-        path = filename + " (" + str(counter) + ")" + extension
-        counter += 1
-
-    return path
-
-
-def save_table(name, path, data, sep:str=', '):
-    data = pd.DataFrame(data)
-    if not os.path.exists(path):
-        os.mkdir(path)
-    path = uniquify(os.path.join(path, name))
-    np.savetxt(path, data.values, 
-        delimiter=sep, header=sep.join(data.columns), 
-        comments='', fmt="%.6f")
 
 
 

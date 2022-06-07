@@ -6,9 +6,10 @@ import matplotlib.pyplot as plt
 plt.ioff()
 import numpy as np
 from PyQt5.QtGui import QDoubleValidator, QIntValidator
-from PyQt5.QtCore import Qt, QLocale
+from PyQt5.QtCore import Qt, QLocale, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from PlotterFunctions import Database, show_message, autoscale_y, make_name, save_table, set_width
 from PyQt5.QtWidgets import (
     QFrame,
     QLabel,
@@ -21,24 +22,8 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QWidget,
     QComboBox,
-    QMessageBox
 )
-def show_message(message:str) -> None:
-    msgbox = QMessageBox()
-    msgbox.setIcon(QMessageBox.Information)
-    msgbox.setText(message)
-    msgbox.setStandardButtons(QMessageBox.Ok)
-    msgbox.buttonClicked.connect(msgbox.close)
-    msgbox.exec_()
 
-def set_width(obj: object, target_type: type, width: int):
-    '''
-    Helper function to set size of object's inner widgets
-    '''
-    if "setFixedWidth" in dir(target_type):
-        for key, val in obj.__dict__.items():
-            if isinstance(val, target_type):
-                obj.__dict__[key].setFixedWidth(width)
 
 class PIVparams(object):
     """
@@ -329,222 +314,217 @@ class Settings(QWidget):
             self.hide()
 
 
-        
-class BlitManager:
-    def __init__(self, canvas, animated_artists=()):
-        """
-        Parameters
-        ----------
-        canvas : FigureCanvasAgg
-            The canvas to work with, this only works for sub-classes of the Agg
-            canvas which have the `~FigureCanvasAgg.copy_from_bbox` and
-            `~FigureCanvasAgg.restore_region` methods.
-
-        animated_artists : Iterable[Artist]
-            List of the artists to manage
-        """
-        self.canvas = canvas
-        self._bg = None
-        self._artists = []
-
-        for a in animated_artists:
-            self.add_artist(a)
-        # grab the background on every draw
-        self.cid = canvas.mpl_connect("draw_event", self.on_draw)
-
-    def on_draw(self, event):
-        """Callback to register with 'draw_event'."""
-        cv = self.canvas
-        if event is not None:
-            if event.canvas != cv:
-                raise RuntimeError
-        self._bg = cv.copy_from_bbox(cv.figure.bbox)
-        self._draw_animated()
-
-    def add_artist(self, art):
-        """
-        Add an artist to be managed.
-
-        Parameters
-        ----------
-        art : Artist
-
-            The artist to be added.  Will be set to 'animated' (just
-            to be safe).  *art* must be in the figure associated with
-            the canvas this class is managing.
-
-        """
-        if art.figure != self.canvas.figure:
-            raise RuntimeError
-        art.set_animated(True)
-        self._artists.append(art)
-
-    def _draw_animated(self):
-        """Draw all of the animated artists."""
-        fig = self.canvas.figure
-        for a in self._artists:
-            fig.draw_artist(a)
-
-    def update(self):
-        """Update the screen with animated artists."""
-        cv = self.canvas
-        fig = cv.figure
-        # paranoia in case we missed the draw event,
-        if self._bg is None:
-            self.on_draw(None)
-        else:
-            # restore the background
-            cv.restore_region(self._bg)
-            # draw all of the animated artists
-            self._draw_animated()
-            # update the GUI state
-            cv.blit(fig.bbox)
-        # let the GUI event loop _process anything it has to do
-        cv.flush_events()
-
 class MplCanvas(FigureCanvasQTAgg):
-    def __init__(self,  parent=None, width=5, height=5, dpi=100):
+    def __init__(self,  parent=None, width=6, height=6, dpi=100):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         super(MplCanvas, self).__init__(self.fig)
+        self.axes  = self.fig.add_subplot(1, 1, 1)
+        self.key   = None
+        self.line  = None
+        self.field = None
+        self.fig.tight_layout()
+        self.data  = Database()
+        self.x_data = None
+        self.y_data = None
+        self.orientation = True #True for horizontal and False for vertical
+
+    def change_orientation(self, key):
+        self.orientation = not self.orientation
+        if self.line is None:
+            return
+        self.line.remove()
+        self.line = None
+    
+    def update_canvas(self):
+        self.fig.canvas.draw()
 
 
 class ProfileCanvas(MplCanvas):
-    def __init__(self, parent=None, width=5, height=5, dpi=100):
-        super().__init__(parent=parent, width=width, height=height, dpi=dpi)
-        self.hor_axes  = self.fig.add_subplot(2, 1, 1)
-        self.hor_line  = None
-        self.vert_axes = self.fig.add_subplot(2, 1, 2)
-        self.vert_line = None
-        self.x = np.linspace(0, 1000, 10)
-        self.fig.tight_layout()
+    def __init__(self):
+        super().__init__()
+        self.axes.autoscale(True)
+        self.axes.grid(linestyle = '--', linewidth = 0.7)
 
+    def set_field(self, key):
+        piv_data = self.data.get()
+        self.field = piv_data[key]
+        self.key = key
+        x, y =  [*piv_data.values()][:2]
+        self.x_data = x[0]
+        self.y_data = y[:, 0]
 
-    def onclick(self, event):
-        if event.button:
-            self.vert_axes.cla()
-            self.hor_axes.cla()
-            self.vert_line, = self.vert_axes.plot(self.x, np.ones_like(self.x)*event.xdata, 
-                                            linewidth=.7, color="blue")
-            self.hor_line, = self.hor_axes.plot(self.x, np.ones_like(self.x)*event.ydata, 
-                                            linewidth=.7, color="blue")
-            self.fig.canvas.draw()
+    def draw_horizontal(self, value):
+        if self.line is None:
+            self.line, = self.axes.plot(self.x_data, self.field[value,:], 
+                    linewidth=.8, color="red", marker='s')
+        self.line.set_ydata(self.field[value,:])
+
+    def draw_vertical(self, value):
+        if self.line is None:
+            self.line, = self.axes.plot(self.y_data, self.field[:,value], 
+                    linewidth=.8, color="red", marker='s')
+        self.line.set_ydata(self.field[:,value])
+
+    def draw_line(self, value):
+        if self.field is None:
+            return
+        if self.orientation:
+            self.draw_horizontal(value)
+        else:
+            self.draw_vertical(value)
+        autoscale_y(self.axes)
+        self.update_canvas()
+    
+    def save_profile(self):
+        if self.line is None:
+            return
+        x_data = self.line.get_xdata()
+        y_data = self.line.get_ydata()
+        data = {
+            "x[mm]" if self.orientation else "y[mm]": x_data,
+            self.key: y_data
+        }
+        filename, save_dir = make_name(self.data.name, self.key, self.orientation)
+        save_table(filename, save_dir, data)
+        show_message(f"Profile{self.key} saved in \n{save_dir}")
 
 
 class PIVcanvas(MplCanvas):
-    def __init__(self, parent=None, width=5, height=5, dpi=100):
-        super().__init__(parent, width, height, dpi)
-        self.axes        = self.fig.add_subplot(1, 1, 1)
-        self.circle      = None
-        self.vert_line   = None
-        self.hor_line    = None
+    topChanged  = pyqtSignal(float)
+    botChanged  = pyqtSignal(float)
+    lineChanged = pyqtSignal(float)
+    def __init__(self):
+        super().__init__()
         self.coords      = None
-        self.new_image   = True
-        self.quiver_data = None
-        self.quivers     = None
         self.cb          = None
-        self.scale_max   = None
-        self.scale_avg   = None
-        self.stramlines  = None
-
-        self.fig.canvas.mpl_connect('button_press_event', self.onclick)
-        self.img = np.zeros((1000, 1000))*np.nan
-        self.img_data = self.axes.pcolormesh(self.img)
-        self.y = np.linspace(0, self.img.shape[-2], 10)
-        self.x = np.linspace(0, self.img.shape[-1], 10)
+        self.streamlines = None
+        self.pos_scale   = 1.
+        self.neg_scale   = 1.
+        self.visible_lines = False
+        self.visible_line  = True
+        self.img_data      = None
         self.axes.axis("off")
-        self.vert_line_data = np.ones_like(self.y)*0, self.y
-        self.hor_line_data = self.x, np.ones_like(self.x)*0
-        self.fig.tight_layout()
 
 
-        
-    def onclick(self, event):
-        if event.button:
-            if self.circle is None:
-                self.circle = plt.Circle((event.xdata, event.ydata), 12, fill=False, color='blue')
-                self.axes.add_patch(self.circle)
-                self.vert_line, = self.axes.plot(np.ones_like(self.x)*event.xdata, 
-                                                self.y, linewidth=.7, color="red")
-                self.hor_line, = self.axes.plot(self.x, np.ones_like(self.y)*event.ydata, 
-                                                linewidth=.7, color="red")
+    def draw_horizontal(self, value):
+        if self.line is None:
+            self.line, = self.axes.plot(self.x_data, np.ones_like(self.x_data)*self.y_data[value], 
+                            linewidth=1.5, color="white")
+        self.line.set_ydata(np.ones_like(self.x_data)*self.y_data[value])
+        self.lineChanged.emit(self.y_data[value])
 
-            self.vert_line.set_xdata(np.ones_like(self.x)*event.xdata)
-            self.hor_line.set_ydata(np.ones_like(self.y)*event.ydata)
-
-            self.circle.center = event.xdata, event.ydata
-            self.fig.canvas.draw()
-        
-    def set_coords(self, x, y):
-        if self.coords is None:
-            self.coords = x, y  
+    def draw_vertical(self, value):
+        if self.line is None:
+            self.line, = self.axes.plot(np.ones_like(self.y_data)*self.x_data[value], 
+            self.y_data, linewidth=1.5, color="white")
+        self.line.set_xdata(np.ones_like(self.y_data)*self.x_data[value])
+        self.lineChanged.emit(self.x_data[value])
     
-    def set_quiver(self, U ,V):
-        if not self.coords:
+
+    def draw_line(self, value):
+        if self.x_data is None:
             return
-        self.quiver_data = U, V
-        
-        mod_V = np.hypot(U, V)
-        if self.scale_max is None:
-            self.scale_max = np.max(mod_V)
-            self.scale_avg = np.average(mod_V)
-        
-        Uq =  U/self.scale_max
-        Vq =  V/self.scale_max
-        
-        if self.quivers is None:
-            if isinstance(self.cb, matplotlib.colorbar.Colorbar):
-                self.cb.remove()
-            if self.stramlines is not None:
-                self.stramlines.lines.remove()
-                self.stramlines.arrows.remove()
-            self.img_data = self.axes.pcolormesh(*self.coords, 
-                                                mod_V, 
-                                                cmap=plt.get_cmap('jet'), 
-                                                shading='auto', vmax=self.scale_avg*3)
-            self.quivers = self.axes.quiver(*self.coords, Uq, Vq, scale_units="xy", scale=.01, pivot="mid", width=0.002)
-            self.x = np.linspace(0, np.max(self.coords[0]), 10)
-            self.y = np.linspace(0, np.max(self.coords[1]), 10)
-            self.cb = self.fig.colorbar(self.img_data, ax=self.axes)
-            self.circle = None
+        if self.orientation:
+            self.draw_horizontal(value)
+        else:
+            self.draw_vertical(value)
+        self.update_canvas()
 
-        self.quivers.set_UVC(Uq, Vq)
-        self.img_data.set_array(mod_V.ravel())
+    def hide_line(self):
+        if self.line is None:
+            return
+        self.visible_line = not self.visible_line
+        self.line.set_visible(self.visible_line)
+        self.update_canvas()
 
-    def restore(self):
-        self.coords = None
-        self.quivers = None
+    def set_coords(self):
+        if self.coords is not None:
+            return
         
+        piv_data = self.data.get()
+        x, y = [*piv_data.values()][:2]
+        self.coords = x, y
+        self.x_data = x[0]
+        self.y_data = y[:, 0]
+    
+    def set_field(self, key):
+        self.set_coords()
+        self.key = key
+        piv_data = self.data.get()
+        field = piv_data[key]
+        self.pos_avg = np.max(np.abs(field), initial=0)
+        self.neg_avg = -self.pos_avg
+        if isinstance(self.cb, matplotlib.colorbar.Colorbar):
+            self.cb.remove()
+        if isinstance(self.img_data, matplotlib.collections.QuadMesh):
+            self.img_data.remove()
+        self.img_data = self.axes.pcolormesh(*self.coords, 
+                                            field, 
+                                            cmap="jet", 
+                                            shading='auto',
+                                            vmin=self.neg_avg*self.neg_scale,
+                                            vmax=self.pos_avg*self.pos_scale,
+                                            )
+        self.cb = self.fig.colorbar(self.img_data, ax=self.axes)
+        self.update_canvas()
+
+    def set_v_max(self, value):
+        if self.img_data is None:
+            return
+        value = (value-1000)/1000
+        if value*self.pos_avg <= self.neg_avg*self.neg_scale:
+            return
+        self.pos_scale = value
+        self.topChanged.emit(value*self.pos_avg)
+        self.set_field(self.key)
+
+    def set_v_min(self, value):
+        if self.img_data is None:
+            return
+        value = (1000-value)/1000
+        if value*self.neg_avg >= self.pos_scale*self.pos_avg:
+            return
+        self.neg_scale = value
+        self.botChanged.emit(value*self.neg_avg)
+        self.set_field(self.key)
+
     def draw_stremlines(self):
-        u, v = self.quiver_data
-        x, y = self.coords
-        x0 = x[0]
-        y0 = y[:, 0]
-        xi = np.linspace(x0.min(), x0.max(), x0.size)
-        yi = np.linspace(y0.min(), y0.max(), y0.size)
-        xflat = x.reshape(-1)
-        yflat = y.reshape(-1)
-        uflat = u.reshape(-1)
-        vflat = v.reshape(-1)
-        interp_ui = LinearNDInterpolator(list(zip(xflat, yflat)), uflat)
-        interp_vi = LinearNDInterpolator(list(zip(xflat, yflat)), vflat)
+        piv_data = self.data.get()
+        u, v = [*piv_data.values()][2:4]
+        x0 = self.x_data
+        y0 = self.y_data
+        xi = np.linspace(x0.min(), x0.max(), y0.size)
+        yi = np.linspace(y0.min(), y0.max(), x0.size)
+        x0, y0 = np.meshgrid(x0, y0)
         xi, yi = np.meshgrid(xi, yi)
+        xflat = x0.reshape(-1)
+        yflat = y0.reshape(-1)
+        interp_ui = LinearNDInterpolator(list(zip(xflat, yflat)), u.reshape(-1))
+        interp_vi = LinearNDInterpolator(list(zip(xflat, yflat)), v.reshape(-1))
         ui = interp_ui(xi, yi)
         vi = interp_vi(xi, yi)
         self.streamlines = self.axes.streamplot(xi, yi, ui, vi, 
-            density=5, linewidth=.5, arrowsize=.5
+            density=4, linewidth=.8, arrowsize=.8, color="black"
             )
+        self.update_canvas()
 
-    def update_canvas(self):
-        self.fig.canvas.draw()
+    def hide_streamlines(self):
+        if self.coords is None:
+            return
+        if self.streamlines is None:
+            self.draw_stremlines()
+        self.visible_lines = not self.visible_lines
+        self.streamlines.lines.set_visible(self.visible_lines)
+        self.streamlines.arrows.set_visible(self.visible_lines)
+        self.update_canvas()
 
 
 
 class PIVWidget(QWidget):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.piv     = PIVcanvas(self, width=6, height=6, dpi=200)
+        self.piv     = PIVcanvas()
         self.profile = ProfileCanvas()
-        # self.piv.fig.canvas.mpl_connect('button_press_event', self.profile.onclick)
         self.initUI()
 
 
