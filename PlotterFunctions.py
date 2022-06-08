@@ -107,3 +107,9 @@ class Database(Singleton):
 
     def set(self, data: dict):
         self._data = data
+    def load(self, name):
+        data = pd.read_csv(name, sep=None, engine="python")
+        grid = find_grid(data)
+        self._data = reshape_data(data, grid)
+        _, name = os.path.split(name)
+        self.name, _ = os.path.splitext(name)

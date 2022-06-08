@@ -2,16 +2,19 @@ import logging
 import traceback
 import sys
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
     QTabWidget,
     QVBoxLayout,
     QWidget,
-    QMessageBox
+    QMessageBox,
+    QAction,
+    QMenu,
+    QHBoxLayout
 )
-from PIVwidgets import PIVWidget, ControlsWidget
+from PIVwidgets import PIVWidget, AnalysControlWidget
 from PlotterFunctions import show_message, Database
 from workers import PIVWorker, OnlineWorker
 
@@ -23,26 +26,54 @@ class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.piv_widget = PIVWidget()
-        self.controls = ControlsWidget()
-        self.tabs = QTabWidget()
+        self.controls = AnalysControlWidget()
         self.data = Database()
         self.controls.piv_button.clicked.connect(self.start_piv)
         self.controls.pause_button.clicked.connect(self.pause_piv)
-        self.controls.stop_button.clicked.connect(self.stop_piv)
+        self.controls.piv_button.clicked.connect(self.stop_piv)
         self.timer = QTimer()
         self.calc_thread = None
         self.timer.timeout.connect(self.piv_widget.piv_view.piv.update_canvas)
         self.initUI()
    
     def initUI(self):
-        
-        self.tabs.addTab(self.controls, "Settings")
-        self.tabs.addTab(self.piv_widget, "PIVviewer")
         layout = QVBoxLayout()
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.piv_widget)
+        h_layout = QHBoxLayout()
+        h_layout.addWidget(self.piv_widget.controls)
+        h_layout.addWidget(self.controls)
+        layout.addLayout(h_layout)
         w = QWidget()
         w.setLayout(layout)
         self.setCentralWidget(w)
+        
+        menuBar = self.menuBar()
+        exitAction = QAction("Exit", self)
+        exitAction.triggered.connect(self.close)
+        fileMenu = menuBar.addMenu("&File      ")
+        settings = QAction("Settings", self)
+        settings.triggered.connect(self.controls.show_settings)
+        menuBar.addAction(settings)
+        folderMenu = QMenu("PIV folder", self)
+        selectFolder = QAction("&New", self)
+        selectFolder.triggered.connect(self.controls.open_dialog)
+        folderMenu.addAction(selectFolder)
+        folderMenu.addAction(QAction(self.controls.settings.state.folder, self))
+        pivfileMenu = QMenu("Open PIV file", self)
+        pivfileAction = QAction("&New", self)
+        pivfileAction.triggered.connect(self.piv_widget.controls.open_dialog)
+        pivfileMenu.addAction(pivfileAction)
+
+        
+        saveMenu = QMenu("&Save", self)
+        saveMenu.addActions([
+            QAction("Save profile", self),
+            QAction("Save colormap", self)
+        ])
+        fileMenu.addMenu(folderMenu)
+        fileMenu.addMenu(pivfileMenu)
+        fileMenu.addMenu(saveMenu)
+        fileMenu.addAction(exitAction)
 
     def exit(self, checked):
         self.controls.close()
@@ -97,6 +128,8 @@ class MainWindow(QMainWindow):
         #     self.piv_widget.piv.update_canvas()
     
     def stop_piv(self):
+        if self.controls.piv_button.text() != "Stop PIV":
+            return
         if self.calc_thread is None:
             return
         self.worker.is_running = False
@@ -104,6 +137,8 @@ class MainWindow(QMainWindow):
 
 
     def start_piv(self):
+        if self.controls.piv_button.text() != "Start PIV":
+            return
         self.timer.start(4000)
         self.controls.settings.state.to_json()
         self.calc_thread = QThread(parent=None)

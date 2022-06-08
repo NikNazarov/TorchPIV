@@ -1,3 +1,4 @@
+from click import confirm
 import matplotlib
 import json
 from scipy.interpolate import LinearNDInterpolator
@@ -71,6 +72,7 @@ class PIVparams(object):
     save_dir: str = "" 
     iter_scale: float = 2.0
     folder: str = ""
+    regime: str = ""
 
     @classmethod
     def __setattr__(cls, name, val):
@@ -257,9 +259,7 @@ class Settings(QWidget):
         hbox_bot.addLayout(time_box)
         hbox_bot.addLayout(save_box)
         hbox_bot.addLayout(device_box)
-        set_width(self, QLineEdit, 120)
-        set_width(self, QComboBox, 180)
-        set_width(self, QTextEdit, 180)
+
 
         hhbox = QHBoxLayout()
         
@@ -280,18 +280,30 @@ class Settings(QWidget):
         dummybox.addWidget(self.confirm)
         dummybox.setAlignment(Qt.AlignRight)
 
+        regimebox = QVBoxLayout()
+        lbl = QLabel("PIV regime")
+        self.regimeComboBox = QComboBox()
+        self.regimeComboBox.addItems([
+            "offline",
+            "online"
+        ])
+        regimebox.addWidget(lbl)
+        regimebox.addWidget(self.regimeComboBox)
 
-        hhbox.addLayout(dummybox)
-        hhbox.setAlignment(Qt.AlignRight)
-
+        
+        hhhbox = QHBoxLayout()
+        hhhbox.addLayout(regimebox)
+        hhhbox.addLayout(dummybox)    
     
         vbox_down.addLayout(hhbox)
-
+        vbox_down.addLayout(hhhbox)
 
 
         main_box.addLayout(hbox_top)
         main_box.addLayout(hbox_bot)
         main_box.addLayout(vbox_down)
+        set_width(self, QLineEdit, 120)
+        set_width(self, QComboBox, 180)
         self.set_valeues()
 
     def set_valeues(self):
@@ -311,6 +323,8 @@ class Settings(QWidget):
         self.save_folder.setText(self.state.save_dir)
         self.iteration.setText(str(self.state.iterations))
         self.iteration_scale.setText(str(self.state.iter_scale))
+        idx = self.regimeComboBox.findText(str(self.state.regime), Qt.MatchContains)
+        if idx >=0: self.regimeComboBox.setCurrentIndex(idx)
     
     
     def open_dialog(self, checked):
@@ -337,14 +351,47 @@ class Settings(QWidget):
         self.state.save_dir = self.save_folder.toPlainText()
         self.state.iterations = int(self.iteration.text())
         self.state.iter_scale = float(self.iteration_scale.text())
+        self.state.regime     = self.regimeComboBox.currentText()
         self.state.to_json()
         if self.isVisible():
             self.hide()
 
+class ViewSettings(QWidget):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__( *args, **kwargs)
+        self.initUI()
+
+    def initUI(self):
+        self.pos_scale_slider = ListSlider(orientation=Qt.Horizontal)
+        self.neg_scale_slider = ListSlider(orientation=Qt.Horizontal)
+        self.pos_scale_slider.setFixedWidth(200)
+        self.neg_scale_slider.setFixedWidth(200)
+        self.pos_scale_slider.values = list(range(2000))
+        self.pos_scale_slider.setValue(1999)
+        self.neg_scale_slider.values = list(range(2000))
+        self.neg_scale_slider.setValue(0)
+
+        self.streamlines_btn = QPushButton("Show streamlines")
+        self.streamlines_btn.clicked.connect(self.hide_streamlines)
+
+        self.hide_lines = QPushButton("Hide line")
+        self.hide_lines.clicked.connect(self.hide_profile_lines)
+
+    def hide_streamlines(self):
+        if self.streamlines_btn.text() == "Hide streamlines":
+            self.streamlines_btn.setText("Show streamlines")
+        else:
+            self.streamlines_btn.setText("Hide streamlines")
+
+    def hide_profile_lines(self):
+        if self.hide_lines.text() == "Hide line":
+            self.hide_lines.setText("Show line")
+        else:
+            self.hide_lines.setText("Hide line")
 
 class MplCanvas(FigureCanvasQTAgg):
-    def __init__(self,  parent=None, width=6, height=6, dpi=100):
-        self.fig = Figure(figsize=(width, height), dpi=dpi)
+    def __init__(self,  parent=None, width=7, height=7, dpi=100):
+        self.fig = Figure(figsize=(width, height),dpi=dpi)
         super(MplCanvas, self).__init__(self.fig)
         self.axes  = self.fig.add_subplot(1, 1, 1)
         self.key   = None
@@ -365,7 +412,6 @@ class MplCanvas(FigureCanvasQTAgg):
     
     def update_canvas(self):
         self.fig.canvas.draw()
-
 
 class ProfileCanvas(MplCanvas):
     def __init__(self):
@@ -573,115 +619,47 @@ class PIVview(QWidget):
 
         self.setLayout(layout)
 
-class PIVcontrols(QWidget):
+class ProfileControls(QWidget):
     fieldchosen = pyqtSignal(str)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        self.filename = QTextEdit()
-        self.regime_box = QComboBox()
+        self.settings = ViewSettings()
+        self.field_box = QComboBox()
         self.data = Database()
         self.setFixedHeight(120)
+        self.hide_lines = self.settings.hide_lines
+        self.streamlines_btn = self.settings.streamlines_btn
+
 
         self.initUI()
     def initUI(self):
-        file_box = QHBoxLayout()
-        file_button = QPushButton("Select file")
-        file_button.clicked.connect(self.open_dialog)
-        self.filename.setFixedHeight(35)
-        file_box.addWidget(self.filename)
-        file_box.addWidget(file_button)
-
-        control_v = QVBoxLayout()
-
-        control_v.addLayout(file_box)
-
-        settings_h = QHBoxLayout()
-
-        settings_h.addWidget(self.regime_box)
-
-        control_v.addLayout(settings_h)
-
-        bottom_left_frame = QFrame()
-        bottom_left_frame.setLayout(control_v)
-        bottom_left_frame.setLineWidth(1)
-        bottom_left_frame.setFrameStyle(QFrame.Panel)        
-
-
-        self.pos_scale_slider = ListSlider(orientation=Qt.Horizontal)
-        self.neg_scale_slider = ListSlider(orientation=Qt.Horizontal)
-        self.pos_scale_slider.setFixedWidth(200)
-        self.neg_scale_slider.setFixedWidth(200)
-
         self.slider_LCD = QLCDNumber()
         self.slider_LCD.setFrameShape(QFrame.NoFrame)
         self.slider_LCD.setSegmentStyle(QLCDNumber.Flat)
 
-        self.save_btn = QPushButton("Save profile")
         self.slider = ListSlider(orientation=Qt.Horizontal)
-        self.streamlines_btn = QPushButton("Show streamlines")
-        self.streamlines_btn.clicked.connect(self.hide_streamlines)
         self.orientation_qbox = QComboBox()
         self.orientation_qbox.setFixedWidth(100)
-        self.hide_lines = QPushButton("Hide line")
-        self.hide_lines.clicked.connect(self.hide_profile_lines)
         slider_box = QHBoxLayout()
         slider_box.addWidget(self.slider)
         slider_box.addWidget(self.slider_LCD)
         slider_box.addWidget(self.orientation_qbox)
-        hide_box = QHBoxLayout()
-        hide_box.addWidget(self.save_btn)
-        hide_box.addWidget(self.streamlines_btn)
-        hide_box.addWidget(self.hide_lines)
         bottom_right_box = QVBoxLayout()
+        lbl = QLabel("Profile control:")
+        bottom_right_box.addWidget(lbl)
         bottom_right_box.addLayout(slider_box)
-        bottom_right_box.addLayout(hide_box)
-
+        bottom_right_box.addWidget(self.field_box)
         
         bottom_right_frame = QFrame()
         bottom_right_frame.setLayout(bottom_right_box)
         bottom_right_frame.setLineWidth(1)
         bottom_right_frame.setFrameStyle(QFrame.Panel)
 
-        self.top_LCD = QLCDNumber()
-        self.bot_LCD = QLCDNumber()
-        self.top_LCD.setFrameShape(QFrame.NoFrame)
-        self.bot_LCD.setFrameShape(QFrame.NoFrame)
-        self.top_LCD.setSegmentStyle(QLCDNumber.Flat)
-        self.bot_LCD.setSegmentStyle(QLCDNumber.Flat)
-
-        slider_top_box = QHBoxLayout()
-        slider_top_box.addWidget(QLabel("Max scale"))
-        slider_top_box.addWidget(self.top_LCD)
-
-        slider_bot_box = QHBoxLayout()
-        slider_bot_box.addWidget(QLabel("Min scale"))
-        slider_bot_box.addWidget(self.bot_LCD)
-
-        sliders_box = QVBoxLayout()
-        sliders_box.addLayout(slider_top_box)
-        sliders_box.addWidget(self.pos_scale_slider)
-        sliders_box.addLayout(slider_bot_box)
-        sliders_box.addWidget(self.neg_scale_slider)
-
         main_box = QHBoxLayout()
-        main_box.addWidget(bottom_left_frame)
-        main_box.addLayout(sliders_box)
         main_box.addWidget(bottom_right_frame)
 
         self.setLayout(main_box)
     
-    def hide_streamlines(self):
-        if self.streamlines_btn.text() == "Hide streamlines":
-            self.streamlines_btn.setText("Show streamlines")
-        else:
-            self.streamlines_btn.setText("Hide streamlines")
-
-    def hide_profile_lines(self):
-        if self.hide_lines.text() == "Hide line":
-            self.hide_lines.setText("Show line")
-        else:
-            self.hide_lines.setText("Hide line")
 
     @pyqtSlot(str)
     def on_activated(self, key):
@@ -699,104 +677,55 @@ class PIVcontrols(QWidget):
 
         self.fieldchosen.emit(key)
         
-    def open_dialog(self, checked):
+    def open_dialog(self):
         name, check = QFileDialog.getOpenFileName()
         if not check:
             return
-        self.filename.setText(name)
         self.data.load(name)
         piv_data = self.data.get()
-        self.regime_box.clear()
-        self.regime_box.addItems([*piv_data.keys()][2:])
-        self.regime_box.activated[str].connect(self.on_activated)
+        self.field_box.clear()
+        self.field_box.addItems([*piv_data.keys()][2:])
+        self.field_box.activated[str].connect(self.on_activated)
         self.orientation_qbox.clear()
         self.orientation_qbox.addItems(["Horizontal", "Vertical"])
         self.orientation_qbox.activated[str].connect(self.on_orientation)
         self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
         self.slider.setValue(0)
-        self.pos_scale_slider.values = list(range(2000))
-        self.pos_scale_slider.setValue(1999)
-        self.neg_scale_slider.values = list(range(2000))
-        self.neg_scale_slider.setValue(0)
         
 class PIVWidget(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.piv_view = PIVview()
-        self.controls = PIVcontrols()
+        self.controls = ProfileControls()
         self.controls.hide_lines.clicked.connect(self.piv_view.piv.hide_line)
-        self.controls.save_btn.clicked.connect(self.piv_view.profile.save_profile)
-        self.controls.regime_box.activated[str].connect(self.piv_view.piv.set_field)
-        self.controls.regime_box.activated[str].connect(self.piv_view.profile.set_field)
+        self.controls.field_box.activated[str].connect(self.piv_view.piv.set_field)
+        self.controls.field_box.activated[str].connect(self.piv_view.profile.set_field)
         self.controls.slider.valueChanged.connect(self.piv_view.piv.draw_line)
         self.controls.slider.valueChanged.connect(self.piv_view.profile.draw_line)
-        self.controls.pos_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_max)
-        self.controls.neg_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_min)
         self.controls.streamlines_btn.clicked.connect(self.piv_view.piv.hide_streamlines)
         self.controls.orientation_qbox.activated[str].connect(self.piv_view.profile.change_orientation)
         self.controls.orientation_qbox.activated[str].connect(self.piv_view.piv.change_orientation)
-        self.piv_view.piv.topChanged.connect(self.controls.top_LCD.display)
-        self.piv_view.piv.botChanged.connect(self.controls.bot_LCD.display)
         self.piv_view.piv.lineChanged.connect(self.controls.slider_LCD.display)
 
         self.initUI()
    
     def initUI(self):
-
         layout = QVBoxLayout()
         layout.addWidget(self.piv_view)
-        layout.addWidget(self.controls)
         self.setLayout(layout)
+        self.setFixedHeight
 
-class ControlsWidget(QWidget):
+class AnalysControlWidget(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        self.folder_name = QTextEdit()
         self.settings = Settings()
-        self.folder_name.setText(self.settings.state.folder)
-        self.regime_box = QComboBox()
-        self.regime_box.addItems(["offline", "online"])
         self.piv_button = QPushButton("Start PIV")
         self.pause_button = QPushButton("Pause")
-        self.stop_button = QPushButton("Stop")
         self.pbar = QProgressBar()
 
         self.initUI()
     def initUI(self):
-        file_box = QHBoxLayout()
-        file_button = QPushButton("Select folder")
-        file_button.clicked.connect(self.open_dialog)
-        self.folder_name.setFixedHeight(35)
-        file_box.addWidget(self.folder_name)
-        file_box.addWidget(file_button)
-
-        control_v = QVBoxLayout()
-
-        control_v.addLayout(file_box)
-
-        settings_h = QHBoxLayout()
-
-        settings_button = QPushButton("Settings")
-        settings_button.clicked.connect(self.show_settings)
-
-        
-        settings_h.addWidget(settings_button)
-        settings_h.addSpacing(30)
-        settings_h.addWidget(self.regime_box)
-        settings_h.addSpacing(30)
-        settings_h.addWidget(self.piv_button)
-
-        control_v.addLayout(settings_h)
-
-        bottom_left_frame = QFrame()
-        bottom_left_frame.setLayout(control_v)
-        bottom_left_frame.setLineWidth(1)
-        bottom_left_frame.setFrameStyle(QFrame.Panel)
-
-        bottom_left_box = QHBoxLayout()
-        bottom_left_box.addWidget(bottom_left_frame)
-        bottom_left_box.addSpacing(100)
+        self.pbar.setStyleSheet("color: green")
 
         progress_box = QVBoxLayout()
         lbl = QLabel("Total progress: ")
@@ -804,26 +733,27 @@ class ControlsWidget(QWidget):
         progress_box.addWidget(self.pbar)
         pb_h = QHBoxLayout()
         pb_h.addWidget(self.pause_button)
-        pb_h.addWidget(self.stop_button)
+        pb_h.addWidget(self.piv_button)
         progress_box.addLayout(pb_h)
 
-        bottom_right_frame = QFrame()
-        bottom_right_frame.setFrameStyle(QFrame.Raised)
-        bottom_left_frame.setLineWidth(1)
 
-        main_box = QHBoxLayout()
-        main_box.addLayout(bottom_left_box)
-        main_box.addLayout(progress_box)
-
-        self.setLayout(main_box)
+        self.setLayout(progress_box)
+        self.setFixedHeight(120)
         
     def open_dialog(self, checked):
         folder = QFileDialog.getExistingDirectory()
-        self.folder_name.setText(folder)
         self.settings.state.folder = folder
+    
+    def hide_streamlines(self):
+        if self.piv_button.text() == "Start PIV":
+            self.piv_button.setText("Stop PIV")
+        else:
+            self.piv_button.setText("Start PIV")
 
     def show_settings(self, checked):
         if self.settings.isVisible():
             self.settings.hide()
         else:
             self.settings.show()
+
+    
