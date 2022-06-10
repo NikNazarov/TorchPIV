@@ -1,13 +1,15 @@
+from importlib.util import LazyLoader
 from click import confirm
 import matplotlib
 import json
 from scipy.interpolate import LinearNDInterpolator
+from torch import layout
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
 import numpy as np
-from PyQt5.QtGui import QDoubleValidator, QIntValidator
-from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QDoubleValidator, QIntValidator, QPalette
+from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot  
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PlotterFunctions import Database, show_message, autoscale_y, make_name, save_table, set_width
@@ -24,7 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QComboBox,
     QLCDNumber,
-    QSlider
+    QSlider,
 )
 
 class ListSlider(QSlider):
@@ -282,13 +284,13 @@ class Settings(QWidget):
 
         regimebox = QVBoxLayout()
         lbl = QLabel("PIV regime")
-        self.regimeComboBox = QComboBox()
-        self.regimeComboBox.addItems([
+        self.regime_box = QComboBox()
+        self.regime_box.addItems([
             "offline",
             "online"
         ])
         regimebox.addWidget(lbl)
-        regimebox.addWidget(self.regimeComboBox)
+        regimebox.addWidget(self.regime_box)
 
         
         hhhbox = QHBoxLayout()
@@ -323,8 +325,8 @@ class Settings(QWidget):
         self.save_folder.setText(self.state.save_dir)
         self.iteration.setText(str(self.state.iterations))
         self.iteration_scale.setText(str(self.state.iter_scale))
-        idx = self.regimeComboBox.findText(str(self.state.regime), Qt.MatchContains)
-        if idx >=0: self.regimeComboBox.setCurrentIndex(idx)
+        idx = self.regime_box.findText(str(self.state.regime), Qt.MatchContains)
+        if idx >=0: self.regime_box.setCurrentIndex(idx)
     
     
     def open_dialog(self, checked):
@@ -351,7 +353,7 @@ class Settings(QWidget):
         self.state.save_dir = self.save_folder.toPlainText()
         self.state.iterations = int(self.iteration.text())
         self.state.iter_scale = float(self.iteration_scale.text())
-        self.state.regime     = self.regimeComboBox.currentText()
+        self.state.regime     = self.regime_box.currentText()
         self.state.to_json()
         if self.isVisible():
             self.hide()
@@ -370,12 +372,32 @@ class ViewSettings(QWidget):
         self.pos_scale_slider.setValue(1999)
         self.neg_scale_slider.values = list(range(2000))
         self.neg_scale_slider.setValue(0)
+        self.pos_scale_text = QLineEdit()
+        self.neg_scale_text = QLineEdit()
 
         self.streamlines_btn = QPushButton("Show streamlines")
         self.streamlines_btn.clicked.connect(self.hide_streamlines)
 
         self.hide_lines = QPushButton("Hide line")
         self.hide_lines.clicked.connect(self.hide_profile_lines)
+
+        pos_hbox = QHBoxLayout()
+        pos_hbox.addWidget(self.pos_scale_slider)
+        pos_hbox.addWidget(self.pos_scale_text)
+        neg_hbox = QHBoxLayout()
+        neg_hbox.addWidget(self.neg_scale_slider)
+        neg_hbox.addWidget(self.neg_scale_text)
+        
+        button_hbox = QHBoxLayout()
+        button_hbox.addWidget(self.streamlines_btn)
+        button_hbox.addWidget(self.hide_lines)
+
+        layout = QVBoxLayout()
+        layout.addLayout(pos_hbox)
+        layout.addLayout(neg_hbox)
+        layout.addLayout(button_hbox)
+
+        self.setLayout(layout)
 
     def hide_streamlines(self):
         if self.streamlines_btn.text() == "Hide streamlines":
@@ -691,6 +713,11 @@ class ProfileControls(QWidget):
         self.orientation_qbox.activated[str].connect(self.on_orientation)
         self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
         self.slider.setValue(0)
+    def show_settings(self, checked):
+        if self.settings.isVisible():
+            self.settings.hide()
+        else:
+            self.settings.show()
         
 class PIVWidget(QWidget):
     def __init__(self, *args, **kwargs):
@@ -722,10 +749,20 @@ class AnalysControlWidget(QWidget):
         self.piv_button = QPushButton("Start PIV")
         self.pause_button = QPushButton("Pause")
         self.pbar = QProgressBar()
-
+        self.piv_button.pressed.connect(self._changeButton)
         self.initUI()
     def initUI(self):
-        self.pbar.setStyleSheet("color: green")
+        # self.pbar.setStyleSheet("QProgressBar::chunk "
+        #           "{"
+        #             "background-color: green;"
+        #             "border-style: outset;"
+        #             "border-width: 2px;"
+        #             "border-radius: 10px;"
+        #             "border-color: beige;"
+        #             "font: bold 14px;"
+        #             "min-width: 10em;"
+        #             "padding: 6px;"
+        #           "}")
 
         progress_box = QVBoxLayout()
         lbl = QLabel("Total progress: ")
@@ -744,7 +781,7 @@ class AnalysControlWidget(QWidget):
         folder = QFileDialog.getExistingDirectory()
         self.settings.state.folder = folder
     
-    def hide_streamlines(self):
+    def _changeButton(self):
         if self.piv_button.text() == "Start PIV":
             self.piv_button.setText("Stop PIV")
         else:
@@ -755,5 +792,3 @@ class AnalysControlWidget(QWidget):
             self.settings.hide()
         else:
             self.settings.show()
-
-    

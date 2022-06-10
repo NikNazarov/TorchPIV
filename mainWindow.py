@@ -40,8 +40,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addWidget(self.piv_widget)
         h_layout = QHBoxLayout()
-        h_layout.addWidget(self.piv_widget.controls)
         h_layout.addWidget(self.controls)
+        h_layout.addWidget(self.piv_widget.controls)
         layout.addLayout(h_layout)
         w = QWidget()
         w.setLayout(layout)
@@ -50,10 +50,13 @@ class MainWindow(QMainWindow):
         menuBar = self.menuBar()
         exitAction = QAction("Exit", self)
         exitAction.triggered.connect(self.close)
-        fileMenu = menuBar.addMenu("&File      ")
-        settings = QAction("Settings", self)
+        fileMenu = menuBar.addMenu("&File")
+        settings = QAction("Analys Settings", self)
         settings.triggered.connect(self.controls.show_settings)
         menuBar.addAction(settings)
+        viewControls = QAction("View Settings", self)
+        viewControls.triggered.connect(self.piv_widget.controls.show_settings)
+        menuBar.addAction(viewControls)
         folderMenu = QMenu("PIV folder", self)
         selectFolder = QAction("&New", self)
         selectFolder.triggered.connect(self.controls.open_dialog)
@@ -128,7 +131,7 @@ class MainWindow(QMainWindow):
         #     self.piv_widget.piv.update_canvas()
     
     def stop_piv(self):
-        if self.controls.piv_button.text() != "Stop PIV":
+        if self.controls.piv_button.text() == "Stop PIV":
             return
         if self.calc_thread is None:
             return
@@ -137,17 +140,17 @@ class MainWindow(QMainWindow):
 
 
     def start_piv(self):
-        if self.controls.piv_button.text() != "Start PIV":
+        if self.controls.piv_button.text() == "Start PIV":
             return
         self.timer.start(4000)
         self.controls.settings.state.to_json()
         self.calc_thread = QThread(parent=None)
         piv_params = self.controls.settings.state
-        if self.controls.regime_box.currentText() == "offline":
-            self.worker = PIVWorker(self.controls.folder_name.toPlainText(),
+        if self.controls.settings.regime_box.currentText() == "offline":
+            self.worker = PIVWorker(self.controls.settings.state.folder,
                                     piv_params=piv_params)
-        elif self.controls.regime_box.currentText() == "online":
-            self.worker = OnlineWorker(self.controls.folder_name.toPlainText(),
+        elif self.controls.settings.regime_box.currentText() == "online":
+            self.worker = OnlineWorker(self.controls.settings.state.folder,
                                         piv_params=piv_params)
 
         # self.worker.is_running = True
@@ -170,12 +173,10 @@ class MainWindow(QMainWindow):
             self._enable_buttons
         )
     def _disable_buttons(self):
-        self.controls.piv_button.setEnabled(False)
         self.controls.settings.confirm.setEnabled(False)
 
     
     def _enable_buttons(self):
-        self.controls.piv_button.setEnabled(True)
         self.controls.settings.confirm.setEnabled(True)
 
     def message(self, string: str):
