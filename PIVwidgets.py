@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QLCDNumber,
     QSlider,
+    QCheckBox
 )
 
 class ListSlider(QSlider):
@@ -372,14 +373,22 @@ class ViewSettings(QWidget):
         self.pos_scale_slider.setValue(1999)
         self.neg_scale_slider.values = list(range(2000))
         self.neg_scale_slider.setValue(0)
+        
         self.pos_scale_text = QLineEdit()
+        validator = QDoubleValidator()
+        validator.setLocale(QLocale("en_US"))
+        self.pos_scale_text.setValidator(validator)
         self.neg_scale_text = QLineEdit()
+        validator = QDoubleValidator()
+        validator.setLocale(QLocale("en_US"))
+        self.neg_scale_text.setValidator(validator)
 
-        self.streamlines_btn = QPushButton("Show streamlines")
-        self.streamlines_btn.clicked.connect(self.hide_streamlines)
+        self.quiver_box = QCheckBox("Show Quivers")
+        self.streamlines_box = QCheckBox("Show Streamlines")
+        self.hide_line_box = QCheckBox("Show Profile Line")
+        self.hide_line_box.toggle()
 
-        self.hide_lines = QPushButton("Hide line")
-        self.hide_lines.clicked.connect(self.hide_profile_lines)
+
 
         pos_hbox = QHBoxLayout()
         pos_hbox.addWidget(self.pos_scale_slider)
@@ -388,28 +397,19 @@ class ViewSettings(QWidget):
         neg_hbox.addWidget(self.neg_scale_slider)
         neg_hbox.addWidget(self.neg_scale_text)
         
-        button_hbox = QHBoxLayout()
-        button_hbox.addWidget(self.streamlines_btn)
-        button_hbox.addWidget(self.hide_lines)
+        checkbox_vbox = QVBoxLayout()
+        checkbox_vbox.addWidget(self.streamlines_box)
+        checkbox_vbox.addWidget(self.hide_line_box)
+        checkbox_vbox.addWidget(self.quiver_box)
+
 
         layout = QVBoxLayout()
         layout.addLayout(pos_hbox)
         layout.addLayout(neg_hbox)
-        layout.addLayout(button_hbox)
+        layout.addLayout(checkbox_vbox)
 
         self.setLayout(layout)
 
-    def hide_streamlines(self):
-        if self.streamlines_btn.text() == "Hide streamlines":
-            self.streamlines_btn.setText("Show streamlines")
-        else:
-            self.streamlines_btn.setText("Hide streamlines")
-
-    def hide_profile_lines(self):
-        if self.hide_lines.text() == "Hide line":
-            self.hide_lines.setText("Show line")
-        else:
-            self.hide_lines.setText("Hide line")
 
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self,  parent=None, width=7, height=7, dpi=100):
@@ -434,6 +434,8 @@ class MplCanvas(FigureCanvasQTAgg):
     
     def update_canvas(self):
         self.fig.canvas.draw()
+    def clear(self):
+        self.axes.cla()
 
 class ProfileCanvas(MplCanvas):
     def __init__(self):
@@ -496,7 +498,6 @@ class PIVcanvas(MplCanvas):
         self.streamlines = None
         self.pos_scale   = 1.
         self.neg_scale   = 1.
-        self.visible_lines = False
         self.visible_line  = True
         self.img_data      = None
         self.axes.axis("off")
@@ -584,7 +585,7 @@ class PIVcanvas(MplCanvas):
         self.botChanged.emit(value*self.neg_avg)
         self.set_field(self.key)
 
-    def draw_stremlines(self):
+    def draw_streamlines(self):
         piv_data = self.data.get()
         u, v = [*piv_data.values()][2:4]
         x0 = self.x_data
@@ -605,14 +606,11 @@ class PIVcanvas(MplCanvas):
         self.update_canvas()
 
     def hide_streamlines(self):
-        if self.coords is None:
-            return
-        if self.streamlines is None:
-            self.draw_stremlines()
-        self.visible_lines = not self.visible_lines
-        self.streamlines.lines.set_visible(self.visible_lines)
-        self.streamlines.arrows.set_visible(self.visible_lines)
+        self.clear()
+        self.set_field(self.key)
+        self.line = None
         self.update_canvas()
+
 
 
 
@@ -649,8 +647,8 @@ class ProfileControls(QWidget):
         self.field_box = QComboBox()
         self.data = Database()
         self.setFixedHeight(120)
-        self.hide_lines = self.settings.hide_lines
-        self.streamlines_btn = self.settings.streamlines_btn
+        self.hide_line_box = self.settings.hide_line_box
+        self.streamlines_box = self.settings.streamlines_box
 
 
         self.initUI()
@@ -724,12 +722,12 @@ class PIVWidget(QWidget):
         super().__init__(*args, **kwargs)
         self.piv_view = PIVview()
         self.controls = ProfileControls()
-        self.controls.hide_lines.clicked.connect(self.piv_view.piv.hide_line)
+        self.controls.hide_line_box.stateChanged.connect(self.piv_view.piv.hide_line)
         self.controls.field_box.activated[str].connect(self.piv_view.piv.set_field)
         self.controls.field_box.activated[str].connect(self.piv_view.profile.set_field)
         self.controls.slider.valueChanged.connect(self.piv_view.piv.draw_line)
         self.controls.slider.valueChanged.connect(self.piv_view.profile.draw_line)
-        self.controls.streamlines_btn.clicked.connect(self.piv_view.piv.hide_streamlines)
+        self.controls.streamlines_box.stateChanged.connect(self.streamlines_checker)
         self.controls.orientation_qbox.activated[str].connect(self.piv_view.profile.change_orientation)
         self.controls.orientation_qbox.activated[str].connect(self.piv_view.piv.change_orientation)
         self.piv_view.piv.lineChanged.connect(self.controls.slider_LCD.display)
@@ -741,6 +739,12 @@ class PIVWidget(QWidget):
         layout.addWidget(self.piv_view)
         self.setLayout(layout)
         self.setFixedHeight
+    def streamlines_checker(self):
+        if self.controls.streamlines_box.isChecked():
+            self.piv_view.piv.draw_streamlines()
+        else:
+            self.piv_view.piv.hide_streamlines()
+
 
 class AnalysControlWidget(QWidget):
     def __init__(self, *args, **kwargs):

@@ -85,12 +85,12 @@ class MainWindow(QMainWindow):
     def reportOutput(self, output):
         x, y, u, v = output
         self.data.set({
-            "x": x,
-            "y": y,
-            "u": u,
-            "v": v
+            "x[mm]": x,
+            "y[mm]": y,
+            "Vx[m/s]": u,
+            "Vy[m/s]": v
         })
-        self.piv_widget.piv_view.piv.set_field("v")
+        self.piv_widget.piv_view.piv.set_field("Vy[m/s]")
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
@@ -101,10 +101,10 @@ class MainWindow(QMainWindow):
             )
         x, y, u, v = output
         self.data.set({
-            "x": x,
-            "y": y,
-            "u": u,
-            "v": v
+            "x[mm]": x,
+            "y[mm]": y,
+            "Vx[m/s]": u,
+            "Vy[m/s]": v
         })
         self.timer.stop()
         self.piv_widget.piv_view.piv.update_canvas()
