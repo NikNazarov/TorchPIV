@@ -11,7 +11,7 @@ def show_message(message: str) -> None:
     msgbox.buttonClicked.connect(msgbox.close)
     msgbox.exec_()
 
-def uniquify(path):
+def uniquify(path: str):
     filename, extension = os.path.splitext(path)
     counter = 1
 

@@ -387,7 +387,8 @@ class ViewSettings(QWidget):
         self.streamlines_box = QCheckBox("Show Streamlines")
         self.hide_line_box = QCheckBox("Show Profile Line")
         self.hide_line_box.toggle()
-
+        self.show_axes_box = QCheckBox("Show Axes")
+        self.grid_box = QCheckBox("Show grid")
 
 
         pos_hbox = QHBoxLayout()
@@ -401,6 +402,9 @@ class ViewSettings(QWidget):
         checkbox_vbox.addWidget(self.streamlines_box)
         checkbox_vbox.addWidget(self.hide_line_box)
         checkbox_vbox.addWidget(self.quiver_box)
+        checkbox_vbox.addWidget(self.show_axes_box)
+        checkbox_vbox.addWidget(self.grid_box)
+
 
 
         layout = QVBoxLayout()
@@ -711,6 +715,18 @@ class ProfileControls(QWidget):
         self.orientation_qbox.activated[str].connect(self.on_orientation)
         self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
         self.slider.setValue(0)
+    
+    def init_profile(self):
+        self.field_box.activated[str].connect(self.on_activated)
+        self.orientation_qbox.clear()
+        self.orientation_qbox.addItems(["Horizontal", "Vertical"])
+        self.orientation_qbox.activated[str].connect(self.on_orientation)
+
+    def set_field_box(self):
+        piv_data = self.data.get()
+        self.field_box.clear()
+        self.field_box.addItems([*piv_data.keys()][2:])
+
     def show_settings(self, checked):
         if self.settings.isVisible():
             self.settings.hide()

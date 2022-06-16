@@ -412,7 +412,7 @@ def piv_iteration(
     u0:      np.ndarray, 
     v0:      np.ndarray, 
     wind_size: int, 
-    device: torch.device):
+    device: torch.device)->Tuple[np.ndarray, np.ndarray]:
     iter_proc = time()
     uin = np.rint(u0/2).astype(np.int64)
     vin = np.rint(v0/2).astype(np.int64)
@@ -496,8 +496,3 @@ class OfflinePIV:
             yield x, y, u, v
             end_time = time()
             print(f"Batch finished in {(end_time - start):.3f} sec")
-            
-        
-
-
- 
