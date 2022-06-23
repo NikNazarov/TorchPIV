@@ -324,7 +324,7 @@ def extended_search_area_piv(
     corr = correalte_fft(aa, bb)
     torch.cuda.synchronize()
     print(f"correlation time {(time() - corr_time):.3f} sec")
-    u, v = c_correlation_to_displacement(corr, n_rows, n_cols)
+    u, v = c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=False)
     return u, v
 
 def get_coordinates(image_size, search_area_size, overlap):
