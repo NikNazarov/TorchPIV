@@ -13,9 +13,9 @@ from torchPIV import OfflinePIV, extended_search_area_piv, get_coordinates, load
 
 
 class WorkerSignals(QObject):
-    finished = pyqtSignal(object)
+    finished = pyqtSignal(dict)
     progress = pyqtSignal(int)
-    output   = pyqtSignal(object)
+    output   = pyqtSignal(dict)
 
 class PIVWorker(QObject):
     signals = WorkerSignals()
@@ -55,13 +55,20 @@ class PIVWorker(QObject):
                 break
 
             x, y, u, v = out
+            x = x * self.piv_params.scale
+            y = y * self.piv_params.scale
             u = u * self.piv_params.scale*1e3/self.piv_params.dt
             v = v * self.piv_params.scale*1e3/self.piv_params.dt
 
             u_inst.append(u.astype(np.float64))
             v_inst.append(v.astype(np.float64))
             self.signals.progress.emit((i + 1)/len(piv_gen)*100)
-            self.signals.output.emit((x, y, u, v))
+            self.signals.output.emit({
+            "x[mm]": x,
+            "y[mm]": y,
+            "Vx[m/s]": u,
+            "Vy[m/s]": v}
+            )
         
         free_cuda_memory()
         
@@ -84,8 +91,7 @@ class PIVWorker(QObject):
         self.signals.progress.emit(100)
         out = (x, y, self.avg_u, self.avg_v)
 
-        x = x * self.piv_params.scale
-        y = y * self.piv_params.scale
+
         mid_i, mid_j = x.shape[-2]//2, x.shape[-1]//2
         dx = (x[mid_i, mid_j + 1] - x[mid_i, mid_j]) / 1000
         dy = (y[mid_i + 1, mid_j] - y[mid_i, mid_j]) / 1000
@@ -93,23 +99,24 @@ class PIVWorker(QObject):
         dUy, dUx = np.gradient(self.avg_u, dx, dy, edge_order=2) # U  - Xcomp
         dVy, dVx = np.gradient(self.avg_v, dx, dy, edge_order=2) # V  - Ycomp
         table = {
-            "x[mm]": x.reshape(-1),
-            "y[mm]": y.reshape(-1),
-            "Vx[m/s]": self.avg_u.reshape(-1),
-            "Vy[m/s]": self.avg_v.reshape(-1),
-            "(vx-Vx)(vy-Vy)[m^2/s^2]": uv.reshape(-1),
-            "(vx-Vx)^2[m^2/s^2]": uu.reshape(-1),
-            "(vy-Vy)^2[m^2/s^2]": vv.reshape(-1),
-            "dVx/dx[1/s]": dUx.reshape(-1),
-            "dVx/dy[1/s]": dUy.reshape(-1),
-            "dVy/dx[1/s]": dVx.reshape(-1),
-            "dVy/dy[1/s]": dVy.reshape(-1),
-            "W[1/s]": (dVx - dUy).reshape(-1),
-            "S[1/s]": (dVx + dUy).reshape(-1),
+            "x[mm]": x,
+            "y[mm]": y,
+            "Vx[m/s]": self.avg_u,
+            "Vy[m/s]": self.avg_v,
+            "(vx-Vx)(vy-Vy)[m^2/s^2]": uv,
+            "(vx-Vx)^2[m^2/s^2]": uu,
+            "(vy-Vy)^2[m^2/s^2]": vv,
+            "dVx/dx[1/s]": dUx,
+            "dVx/dy[1/s]": dUy,
+            "dVy/dx[1/s]": dVx,
+            "dVy/dy[1/s]": dVy,
+            "W[1/s]": (dVx - dUy),
+            "S[1/s]": (dVx + dUy),
         }
         name = os.path.basename(os.path.normpath(self.folder))
-        save_table(f"{name}.txt", self.piv_params.save_dir, table)
-        self.signals.finished.emit(out)
+        save_table(f"{name}.txt", self.piv_params.save_dir, table.copy())
+        self.signals.finished.emit(table)
+
 
 
 class OnlineWorker(QObject):

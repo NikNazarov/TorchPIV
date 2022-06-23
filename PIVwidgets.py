@@ -1,4 +1,5 @@
 from importlib.util import LazyLoader
+from multiprocessing import dummy
 from click import confirm
 import matplotlib
 import json
@@ -27,7 +28,8 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QLCDNumber,
     QSlider,
-    QCheckBox
+    QCheckBox,
+    QSplitter
 )
 
 class ListSlider(QSlider):
@@ -446,14 +448,20 @@ class ProfileCanvas(MplCanvas):
         super().__init__()
         self.axes.autoscale(True)
         self.axes.grid(linestyle = '--', linewidth = 0.7)
+        self.value: int = 0
+        self.key = None
 
-    def set_field(self, key):
-        piv_data = self.data.get()
-        self.field = piv_data[key]
+    def set_key(self, key: str):
         self.key = key
+        self.set_field()
+
+    def set_field(self):
+        piv_data = self.data.get()
+        self.field = piv_data[self.key]
         x, y =  [*piv_data.values()][:2]
         self.x_data = x[0]
         self.y_data = y[:, 0]
+        self.draw_line(self.value)
 
     def draw_horizontal(self, value):
         if self.line is None:
@@ -468,6 +476,7 @@ class ProfileCanvas(MplCanvas):
         self.line.set_ydata(self.field[:,value])
 
     def draw_line(self, value):
+        self.value = value
         if self.field is None:
             return
         if self.orientation:
@@ -497,13 +506,13 @@ class PIVcanvas(MplCanvas):
     lineChanged = pyqtSignal(float)
     def __init__(self):
         super().__init__()
-        self.coords      = None
         self.cb          = None
         self.streamlines = None
         self.pos_scale   = 1.
         self.neg_scale   = 1.
         self.visible_line  = True
         self.img_data      = None
+        self.key           = None
         self.axes.axis("off")
 
 
@@ -538,28 +547,24 @@ class PIVcanvas(MplCanvas):
         self.line.set_visible(self.visible_line)
         self.update_canvas()
 
-    def set_coords(self):
-        if self.coords is not None:
-            return
-        
+    def set_key(self, key: str):
+        self.key = key
+        self.set_field()
+    
+    def set_field(self):
+        # self.set_coords()
         piv_data = self.data.get()
         x, y = [*piv_data.values()][:2]
-        self.coords = x, y
         self.x_data = x[0]
         self.y_data = y[:, 0]
-    
-    def set_field(self, key):
-        self.set_coords()
-        self.key = key
-        piv_data = self.data.get()
-        field = piv_data[key]
+        field = piv_data[self.key]
         self.pos_avg = np.max(np.abs(field), initial=0)
         self.neg_avg = -self.pos_avg
         if isinstance(self.cb, matplotlib.colorbar.Colorbar):
             self.cb.remove()
         if isinstance(self.img_data, matplotlib.collections.QuadMesh):
             self.img_data.remove()
-        self.img_data = self.axes.pcolormesh(*self.coords, 
+        self.img_data = self.axes.pcolormesh(x, y, 
                                             field, 
                                             cmap="jet", 
                                             shading='auto',
@@ -577,7 +582,7 @@ class PIVcanvas(MplCanvas):
             return
         self.pos_scale = value
         self.topChanged.emit(value*self.pos_avg)
-        self.set_field(self.key)
+        self.set_field()
 
     def set_v_min(self, value):
         if self.img_data is None:
@@ -587,7 +592,7 @@ class PIVcanvas(MplCanvas):
             return
         self.neg_scale = value
         self.botChanged.emit(value*self.neg_avg)
-        self.set_field(self.key)
+        self.set_field()
 
     def draw_streamlines(self):
         piv_data = self.data.get()
@@ -611,14 +616,14 @@ class PIVcanvas(MplCanvas):
 
     def hide_streamlines(self):
         self.clear()
-        self.set_field(self.key)
+        self.set_field()
         self.line = None
         self.update_canvas()
 
 
 
 
-class PIVview(QWidget):
+class PIVview(QSplitter):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.piv     = PIVcanvas()
@@ -632,16 +637,25 @@ class PIVview(QWidget):
         piv_box = QVBoxLayout()
         piv_box.addWidget(piv_toolbar)
         piv_box.addWidget(self.piv)
+        dummyPiv = QWidget()
+        dummyPiv.setLayout(piv_box)
         
         profile_box = QVBoxLayout()
         profile_box.addWidget(profile_toolbar)
         profile_box.addWidget(self.profile)
+        dummyProfile = QWidget()
+        dummyProfile.setLayout(profile_box)
 
-        layout = QHBoxLayout()
-        layout.addLayout(piv_box)
-        layout.addLayout(profile_box)
+        self.addWidget(dummyPiv)
+        self.addWidget(dummyProfile)
 
-        self.setLayout(layout)
+        # self.setLayout(layout)
+    def set_key(self, key):
+        self.piv.set_key(key)
+        self.profile.set_key(key)
+    def set_field(self):
+        self.piv.set_field()
+        self.profile.set_field()
 
 class ProfileControls(QWidget):
     fieldchosen = pyqtSignal(str)
@@ -650,6 +664,7 @@ class ProfileControls(QWidget):
         self.settings = ViewSettings()
         self.field_box = QComboBox()
         self.data = Database()
+        self.initialized: bool = False
         self.setFixedHeight(120)
         self.hide_line_box = self.settings.hide_line_box
         self.streamlines_box = self.settings.streamlines_box
@@ -706,15 +721,7 @@ class ProfileControls(QWidget):
         if not check:
             return
         self.data.load(name)
-        piv_data = self.data.get()
-        self.field_box.clear()
-        self.field_box.addItems([*piv_data.keys()][2:])
-        self.field_box.activated[str].connect(self.on_activated)
-        self.orientation_qbox.clear()
-        self.orientation_qbox.addItems(["Horizontal", "Vertical"])
-        self.orientation_qbox.activated[str].connect(self.on_orientation)
-        self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
-        self.slider.setValue(0)
+        self.set_field_box()
     
     def init_profile(self):
         self.field_box.activated[str].connect(self.on_activated)
@@ -722,10 +729,14 @@ class ProfileControls(QWidget):
         self.orientation_qbox.addItems(["Horizontal", "Vertical"])
         self.orientation_qbox.activated[str].connect(self.on_orientation)
 
+
     def set_field_box(self):
         piv_data = self.data.get()
         self.field_box.clear()
         self.field_box.addItems([*piv_data.keys()][2:])
+        self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
+        self.slider.setValue(0)
+        self.init_profile()
 
     def show_settings(self, checked):
         if self.settings.isVisible():
@@ -739,8 +750,7 @@ class PIVWidget(QWidget):
         self.piv_view = PIVview()
         self.controls = ProfileControls()
         self.controls.hide_line_box.stateChanged.connect(self.piv_view.piv.hide_line)
-        self.controls.field_box.activated[str].connect(self.piv_view.piv.set_field)
-        self.controls.field_box.activated[str].connect(self.piv_view.profile.set_field)
+        self.controls.field_box.activated[str].connect(self.piv_view.set_key)
         self.controls.slider.valueChanged.connect(self.piv_view.piv.draw_line)
         self.controls.slider.valueChanged.connect(self.piv_view.profile.draw_line)
         self.controls.streamlines_box.stateChanged.connect(self.streamlines_checker)
@@ -754,7 +764,7 @@ class PIVWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.piv_view)
         self.setLayout(layout)
-        self.setFixedHeight
+
     def streamlines_checker(self):
         if self.controls.streamlines_box.isChecked():
             self.piv_view.piv.draw_streamlines()
