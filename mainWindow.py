@@ -2,17 +2,16 @@ import logging
 import traceback
 import sys
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
     QMessageBox,
     QAction,
     QMenu,
-    QHBoxLayout
+    QHBoxLayout,
 )
 from PIVwidgets import PIVWidget, AnalysControlWidget
 from PlotterFunctions import show_message, Database
@@ -33,9 +32,9 @@ class MainWindow(QMainWindow):
         self.controls.piv_button.clicked.connect(self.stop_piv)
         self.timer = QTimer()
         self.calc_thread = None
-        self.timer.timeout.connect(self.piv_widget.piv_view.piv.update_canvas)
+        self.timer.timeout.connect(self.piv_widget.piv_view.set_field)
         self.initUI()
-   
+
     def initUI(self):
         layout = QVBoxLayout()
         layout.addWidget(self.piv_widget)
@@ -82,32 +81,28 @@ class MainWindow(QMainWindow):
         self.controls.close()
         exit()
         
-    def reportOutput(self, output):
-        x, y, u, v = output
-        self.data.set({
-            "x[mm]": x,
-            "y[mm]": y,
-            "Vx[m/s]": u,
-            "Vy[m/s]": v
-        })
-        self.piv_widget.piv_view.piv.set_field("Vy[m/s]")
+    def reportOutput(self, output: dict):
+        self.data.set(output)
+        if not self.piv_widget.controls.initialized:
+            self.piv_widget.controls.set_field_box()
+            self.piv_widget.controls.initialized = True
+            self.piv_widget.piv_view.set_key("Vy[m/s]")
+
+        # self.piv_widget.piv_view.set_field()
+
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
 
-    def reportFinish(self, output):
+    def reportFinish(self, output: dict):
         show_message(
             f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
             )
-        x, y, u, v = output
-        self.data.set({
-            "x[mm]": x,
-            "y[mm]": y,
-            "Vx[m/s]": u,
-            "Vy[m/s]": v
-        })
+        self.data.set(output)
         self.timer.stop()
-        self.piv_widget.piv_view.piv.update_canvas()
+        self.piv_widget.controls.set_field_box()
+        self.piv_widget.piv_view.set_field()
+
 
 
         
@@ -142,7 +137,10 @@ class MainWindow(QMainWindow):
     def start_piv(self):
         if self.controls.piv_button.text() == "Start PIV":
             return
-        self.timer.start(4000)
+    
+        self.piv_widget.controls.initialized = False
+
+        self.timer.start(2000)
         self.controls.settings.state.to_json()
         self.calc_thread = QThread(parent=None)
         piv_params = self.controls.settings.state
@@ -253,4 +251,3 @@ if __name__ == "__main__":
     w = MainWindow()
     w.show()
     sys.exit(app.exec_())
-    

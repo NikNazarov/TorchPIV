@@ -11,7 +11,7 @@ def show_message(message: str) -> None:
     msgbox.buttonClicked.connect(msgbox.close)
     msgbox.exec_()
 
-def uniquify(path):
+def uniquify(path: str):
     filename, extension = os.path.splitext(path)
     counter = 1
 
@@ -32,8 +32,11 @@ def set_width(obj: object, target_type: type, width: int):
                 obj.__dict__[key].setFixedWidth(width)
 
 
-def save_table(name, path, data, sep:str=', '):
+def save_table(name, path, data: dict, sep:str=', '):
+    for key in data.keys():
+        data[key] = data[key].reshape(-1)
     data = pd.DataFrame(data)
+    
     if not os.path.exists(path):
         os.mkdir(path)
     path = uniquify(os.path.join(path, name))
