@@ -9,6 +9,12 @@ import cv2
 import fastSubpixel
 from time import time
 
+class DeviceMap:
+    devicies = {
+        torch.cuda.get_device_name(i) : torch.device(i)  
+        for i in range(torch.cuda.device_count())
+    }
+    devicies["cpu"] = torch.device("cpu")
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -459,7 +465,7 @@ class OfflinePIV:
         self._resize = resize
         self._scale = scale
         
-        self._device = torch.device(device)
+        self._device = DeviceMap.devicies[device]
         self._dataset = PIVDataset(folder, file_fmt, 
                        transform=ToTensor(dtype=torch.uint8)
                       )

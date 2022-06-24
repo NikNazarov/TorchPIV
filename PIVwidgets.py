@@ -1,15 +1,13 @@
-from importlib.util import LazyLoader
-from multiprocessing import dummy
-from click import confirm
 import matplotlib
 import json
 from scipy.interpolate import LinearNDInterpolator
-from torch import layout
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
 import numpy as np
-from PyQt5.QtGui import QDoubleValidator, QIntValidator, QPalette
+import torch
+from bisect import bisect_left
+from PyQt5.QtGui import QDoubleValidator, QIntValidator
 from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot  
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -47,16 +45,20 @@ class ListSlider(QSlider):
         return self._values
 
     @values.setter
-    def values(self, values):
+    def values(self, values: list):
         self._values = values
         maximum = max(0, len(self._values) - 1)
         self.setMaximum(maximum)
         self.setValue(0)
 
     @pyqtSlot(int)
-    def _on_value_changed(self, index):
+    def _on_value_changed(self, index: int):
         value = self.values[index]
         self.elementChanged.emit(value)
+    def set_value(self, value: str):
+        index = bisect_left(self._values, float(value))
+        self.setValue(index)
+        return index
 
 
 class PIVparams(object):
@@ -176,10 +178,8 @@ class Settings(QWidget):
         piv_resize_box.addWidget(self.piv_resize)
 
         self.device = QComboBox()
-        self.device.addItems([
-            "cpu", 
-            "cuda:0",
-            ])
+        available_gpus = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+        self.device.addItems(["cpu"]+available_gpus)
         lbl = QLabel("Device")
         device_box = QVBoxLayout()
         device_box.addWidget(lbl)
@@ -372,9 +372,9 @@ class ViewSettings(QWidget):
         self.pos_scale_slider.setFixedWidth(200)
         self.neg_scale_slider.setFixedWidth(200)
         self.pos_scale_slider.values = list(range(2000))
-        self.pos_scale_slider.setValue(1999)
+        self.pos_scale_slider.setValue(1499)
         self.neg_scale_slider.values = list(range(2000))
-        self.neg_scale_slider.setValue(0)
+        self.neg_scale_slider.setValue(499)
         
         self.pos_scale_text = QLineEdit()
         validator = QDoubleValidator()
@@ -385,12 +385,15 @@ class ViewSettings(QWidget):
         validator.setLocale(QLocale("en_US"))
         self.neg_scale_text.setValidator(validator)
 
+        self.pos_scale_text.editingFinished.connect(self.on_posLineEditChanged)
+        self.neg_scale_text.editingFinished.connect(self.on_negLineEditChanged)
+        
         self.quiver_box = QCheckBox("Show Quivers")
         self.streamlines_box = QCheckBox("Show Streamlines")
         self.hide_line_box = QCheckBox("Show Profile Line")
         self.hide_line_box.toggle()
-        self.show_axes_box = QCheckBox("Show Axes")
-        self.grid_box = QCheckBox("Show grid")
+        self.axes_box = QCheckBox("Show Axes")
+        self.grid_box = QCheckBox("Show Grid")
 
 
         pos_hbox = QHBoxLayout()
@@ -404,7 +407,7 @@ class ViewSettings(QWidget):
         checkbox_vbox.addWidget(self.streamlines_box)
         checkbox_vbox.addWidget(self.hide_line_box)
         checkbox_vbox.addWidget(self.quiver_box)
-        checkbox_vbox.addWidget(self.show_axes_box)
+        checkbox_vbox.addWidget(self.axes_box)
         checkbox_vbox.addWidget(self.grid_box)
 
 
@@ -415,7 +418,10 @@ class ViewSettings(QWidget):
         layout.addLayout(checkbox_vbox)
 
         self.setLayout(layout)
-
+    def on_posLineEditChanged(self):
+        self.pos_scale_slider.set_value(self.pos_scale_text.text())
+    def on_negLineEditChanged(self):
+        self.neg_scale_slider.set_value(self.neg_scale_text.text())
 
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self,  parent=None, width=7, height=7, dpi=100):
@@ -461,6 +467,9 @@ class ProfileCanvas(MplCanvas):
         x, y =  [*piv_data.values()][:2]
         self.x_data = x[0]
         self.y_data = y[:, 0]
+        if isinstance(self.line, matplotlib.lines.Line2D):
+            self.line.remove()
+            self.line = None
         self.draw_line(self.value)
 
     def draw_horizontal(self, value):
@@ -501,18 +510,20 @@ class ProfileCanvas(MplCanvas):
 
 
 class PIVcanvas(MplCanvas):
-    topChanged  = pyqtSignal(float)
-    botChanged  = pyqtSignal(float)
+    topChanged  = pyqtSignal(str)
+    botChanged  = pyqtSignal(str)
     lineChanged = pyqtSignal(float)
     def __init__(self):
         super().__init__()
         self.cb          = None
         self.streamlines = None
-        self.pos_scale   = 1.
-        self.neg_scale   = 1.
+        self.pos_scale   = .5
+        self.neg_scale   = .5
         self.visible_line  = True
         self.img_data      = None
         self.key           = None
+        self.averaged_data = None
+        self.data_index    = 0
         self.axes.axis("off")
 
 
@@ -532,6 +543,9 @@ class PIVcanvas(MplCanvas):
     
 
     def draw_line(self, value):
+        if isinstance(self.line, matplotlib.lines.Line2D):
+            self.line.remove()
+            self.line = None
         if self.x_data is None:
             return
         if self.orientation:
@@ -560,6 +574,7 @@ class PIVcanvas(MplCanvas):
         field = piv_data[self.key]
         self.pos_avg = np.max(np.abs(field), initial=0)
         self.neg_avg = -self.pos_avg
+
         if isinstance(self.cb, matplotlib.colorbar.Colorbar):
             self.cb.remove()
         if isinstance(self.img_data, matplotlib.collections.QuadMesh):
@@ -581,7 +596,7 @@ class PIVcanvas(MplCanvas):
         if value*self.pos_avg <= self.neg_avg*self.neg_scale:
             return
         self.pos_scale = value
-        self.topChanged.emit(value*self.pos_avg)
+        self.topChanged.emit(f"{value*self.pos_avg:.2f}")
         self.set_field()
 
     def set_v_min(self, value):
@@ -591,7 +606,7 @@ class PIVcanvas(MplCanvas):
         if value*self.neg_avg >= self.pos_scale*self.pos_avg:
             return
         self.neg_scale = value
-        self.botChanged.emit(value*self.neg_avg)
+        self.botChanged.emit(f"{value*self.neg_avg:.2f}")
         self.set_field()
 
     def draw_streamlines(self):
@@ -620,6 +635,14 @@ class PIVcanvas(MplCanvas):
         self.line = None
         self.update_canvas()
 
+    def show_grid(self):
+        self.axes.grid(b=True, linestyle = '--', linewidth = 0.7)
+    def show_axis(self):
+        self.axes.axis("on")
+    def hide_grid(self):
+        self.axes.grid(False)
+    def hide_axis(self):
+        self.axes.axis("off")
 
 
 
@@ -668,6 +691,9 @@ class ProfileControls(QWidget):
         self.setFixedHeight(120)
         self.hide_line_box = self.settings.hide_line_box
         self.streamlines_box = self.settings.streamlines_box
+        self.grid_box = self.settings.grid_box
+        self.axes_box = self.settings.axes_box
+
 
 
         self.initUI()
@@ -734,6 +760,7 @@ class ProfileControls(QWidget):
         piv_data = self.data.get()
         self.field_box.clear()
         self.field_box.addItems([*piv_data.keys()][2:])
+        self.field_box.setCurrentText("Vy[m/s]")
         self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
         self.slider.setValue(0)
         self.init_profile()
@@ -754,9 +781,16 @@ class PIVWidget(QWidget):
         self.controls.slider.valueChanged.connect(self.piv_view.piv.draw_line)
         self.controls.slider.valueChanged.connect(self.piv_view.profile.draw_line)
         self.controls.streamlines_box.stateChanged.connect(self.streamlines_checker)
+        self.controls.grid_box.stateChanged.connect(self.grid_checker)
+        self.controls.axes_box.stateChanged.connect(self.axes_checker)
         self.controls.orientation_qbox.activated[str].connect(self.piv_view.profile.change_orientation)
         self.controls.orientation_qbox.activated[str].connect(self.piv_view.piv.change_orientation)
         self.piv_view.piv.lineChanged.connect(self.controls.slider_LCD.display)
+        self.controls.settings.pos_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_max)
+        self.controls.settings.neg_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_min)
+        self.piv_view.piv.topChanged.connect(self.controls.settings.pos_scale_text.setText)
+        self.piv_view.piv.botChanged.connect(self.controls.settings.neg_scale_text.setText)
+
 
         self.initUI()
    
@@ -770,7 +804,16 @@ class PIVWidget(QWidget):
             self.piv_view.piv.draw_streamlines()
         else:
             self.piv_view.piv.hide_streamlines()
-
+    def grid_checker(self):
+        if self.controls.grid_box.isChecked():
+            self.piv_view.piv.show_grid()
+        else:
+            self.piv_view.piv.hide_grid()
+    def axes_checker(self):
+        if self.controls.axes_box.isChecked():
+            self.piv_view.piv.show_axis()
+        else:
+            self.piv_view.piv.hide_axis()
 
 class AnalysControlWidget(QWidget):
     def __init__(self, *args, **kwargs):

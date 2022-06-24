@@ -87,9 +87,7 @@ class MainWindow(QMainWindow):
             self.piv_widget.controls.set_field_box()
             self.piv_widget.controls.initialized = True
             self.piv_widget.piv_view.set_key("Vy[m/s]")
-
-        # self.piv_widget.piv_view.set_field()
-
+            self.piv_widget.controls.field_box.setCurrentText("Vy[m/s]")
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
@@ -102,11 +100,6 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self.piv_widget.controls.set_field_box()
         self.piv_widget.piv_view.set_field()
-
-
-
-        
-
     
     def pause_piv(self):
         if self.calc_thread is None:
