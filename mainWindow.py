@@ -13,7 +13,8 @@ from PyQt5.QtWidgets import (
     QMenu,
     QHBoxLayout,
 )
-from PIVwidgets import PIVWidget, AnalysControlWidget
+from PIVwidgets import PIVWidget
+from ControlsWidgets import AnalysControlWidget
 from PlotterFunctions import show_message, Database
 from workers import PIVWorker, OnlineWorker
 
