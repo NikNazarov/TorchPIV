@@ -2,12 +2,11 @@ import os
 import sys
 import time
 import numpy as np
-import pandas as pd
 from torchvision import transforms
 from collections import deque
-from PIVwidgets import PIVparams
+from ControlsWidgets import PIVparams
 from PyQt5.QtCore import QObject, pyqtSignal, QProcess
-from PlotterFunctions import save_table, uniquify
+from PlotterFunctions import save_table
 from torchPIV import OfflinePIV, extended_search_area_piv, get_coordinates, load_pair, free_cuda_memory
 
 
