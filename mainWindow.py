@@ -1,5 +1,7 @@
 import logging
 import traceback
+import warnings
+warnings.filterwarnings("ignore")
 import sys
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
@@ -113,12 +115,6 @@ class MainWindow(QMainWindow):
         self.controls.pause_button.setText(text)
         self.worker.is_paused = not self.worker.is_paused
 
-        # if self.worker.is_paused:
-        #     u, v = self.worker.avg_u/self.worker.idx, self.worker.avg_v/self.worker.idx
-        #     self.piv_widget.piv.set_quiver(u, v)
-        #     self.piv_widget.piv.draw_stremlines()
-        #     self.piv_widget.piv.update_canvas()
-    
     def stop_piv(self):
         if self.controls.piv_button.text() == "Stop PIV":
             return

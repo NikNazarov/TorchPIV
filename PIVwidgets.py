@@ -178,8 +178,8 @@ class PIVcanvas(MplCanvas):
                                             field, 
                                             cmap="jet", 
                                             shading='auto',
-                                            vmin=None,#self.neg_avg*self.neg_scale,
-                                            vmax=None #self.pos_avg*self.pos_scale,
+                                            vmin=self.neg_avg*self.neg_scale,
+                                            vmax=self.pos_avg*self.pos_scale,
                                             )
         self.cb = self.fig.colorbar(self.img_data, ax=self.axes)
         self.update_canvas()
