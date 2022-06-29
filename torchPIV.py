@@ -9,6 +9,12 @@ import cv2
 import fastSubpixel
 from time import time
 
+class DeviceMap:
+    devicies = {
+        torch.cuda.get_device_name(i) : torch.device(i)  
+        for i in range(torch.cuda.device_count())
+    }
+    devicies["cpu"] = torch.device("cpu")
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -459,7 +465,7 @@ class OfflinePIV:
         self._resize = resize
         self._scale = scale
         
-        self._device = torch.device(device)
+        self._device = DeviceMap.devicies[device]
         self._dataset = PIVDataset(folder, file_fmt, 
                        transform=ToTensor(dtype=torch.uint8)
                       )
@@ -496,3 +502,27 @@ class OfflinePIV:
             yield x, y, u, v
             end_time = time()
             print(f"Batch finished in {(end_time - start):.3f} sec")
+
+
+class OnlinePIV:
+    def __init__(
+        self, folder: str, 
+        device: str,
+        file_fmt: str, 
+        wind_size: int, 
+        overlap: int,
+        iterations: int = 1,
+        dt: int = 1,
+        scale:float = 1.,
+        resize: int = 2,
+        iter_scale:float = 2.
+                ) -> None:
+        self._wind_size = wind_size
+        self._overlap = overlap
+        self._dt = dt
+        self._iter = iterations
+        self._iter_scale = iter_scale
+        self._resize = resize
+        self._scale = scale
+        
+        self._device = DeviceMap.devicies[device]

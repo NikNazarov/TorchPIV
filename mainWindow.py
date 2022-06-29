@@ -1,5 +1,7 @@
 import logging
 import traceback
+import warnings
+warnings.filterwarnings("ignore")
 import sys
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
@@ -13,7 +15,8 @@ from PyQt5.QtWidgets import (
     QMenu,
     QHBoxLayout,
 )
-from PIVwidgets import PIVWidget, AnalysControlWidget
+from PIVwidgets import PIVWidget
+from ControlsWidgets import AnalysControlWidget
 from PlotterFunctions import show_message, Database
 from workers import PIVWorker, OnlineWorker
 
@@ -87,9 +90,7 @@ class MainWindow(QMainWindow):
             self.piv_widget.controls.set_field_box()
             self.piv_widget.controls.initialized = True
             self.piv_widget.piv_view.set_key("Vy[m/s]")
-
-        # self.piv_widget.piv_view.set_field()
-
+            self.piv_widget.controls.field_box.setCurrentText("Vy[m/s]")
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
@@ -102,11 +103,6 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self.piv_widget.controls.set_field_box()
         self.piv_widget.piv_view.set_field()
-
-
-
-        
-
     
     def pause_piv(self):
         if self.calc_thread is None:
@@ -119,12 +115,6 @@ class MainWindow(QMainWindow):
         self.controls.pause_button.setText(text)
         self.worker.is_paused = not self.worker.is_paused
 
-        # if self.worker.is_paused:
-        #     u, v = self.worker.avg_u/self.worker.idx, self.worker.avg_v/self.worker.idx
-        #     self.piv_widget.piv.set_quiver(u, v)
-        #     self.piv_widget.piv.draw_stremlines()
-        #     self.piv_widget.piv.update_canvas()
-    
     def stop_piv(self):
         if self.controls.piv_button.text() == "Stop PIV":
             return

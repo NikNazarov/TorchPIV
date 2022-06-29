@@ -2,13 +2,12 @@ import os
 import sys
 import time
 import numpy as np
-import pandas as pd
-from torchvision import transforms
+import subprocess
 from collections import deque
-from PIVwidgets import PIVparams
+from ControlsWidgets import PIVparams
 from PyQt5.QtCore import QObject, pyqtSignal, QProcess
-from PlotterFunctions import save_table, uniquify
-from torchPIV import OfflinePIV, extended_search_area_piv, get_coordinates, load_pair, free_cuda_memory
+from PlotterFunctions import save_table
+from torchPIV import OfflinePIV, free_cuda_memory
 
 
 
@@ -122,15 +121,17 @@ class PIVWorker(QObject):
 class OnlineWorker(QObject):
     signals = WorkerSignals()
 
-    def __init__(self, folder, piv_params, *args, **kwargs) -> None:
-        raise NotImplementedError
+    def __init__(self, folder, piv_params: PIVparams, *args, **kwargs) -> None:
         super().__init__(*args, parent=None, **kwargs)
         self.folder = folder
         self.piv_params = piv_params
-        self.is_paused = False
+        self.avg_u      = None
+        self.avg_v      = None
+        self.is_paused  = False
+        self.is_running = True
         self._pair    = []
         self._pairdeq = deque()
-        self._process = QProcess()  # Keep a reference to the QProcess (e.g. on self) while it's running.
+        self._process = QProcess() # Keep a reference to the QProcess (e.g. on self) while it's running.
         self._process.readyReadStandardOutput.connect(self.handle_stdout)
         self._process.readyReadStandardError.connect(self.handle_stderr)
         self._process.stateChanged.connect(self.handle_state)
@@ -146,11 +147,11 @@ class OnlineWorker(QObject):
         data = self._process.readAllStandardOutput()
         stdout = bytes(data).decode("utf8")
         if stdout.endswith(
-            f"a{self.piv_params['file_fmt']}"
+            f"a{self.piv_params.file_fmt}"
             ):
             self._pair.append(stdout)
         elif stdout.endswith(
-            f"b{self.piv_params['file_fmt']}"
+            f"b{self.piv_params.file_fmt}"
             ) and self._pair:
             self._pair.append(stdout)
             self._pairdeq.append(self._pair)
@@ -181,24 +182,12 @@ class OnlineWorker(QObject):
         """
         self._process.start(sys.executable, 
                     ['watchman.py', self.folder])
-        device    = self.piv_params["device"]
-        wind_size = self.piv_params["wind_size"]
-        overlap   = self.piv_params["overlap"]
-        scale     = self.piv_params["scale"]
-        dt        = self.piv_params["dt"]
-        tf = transforms.ToTensor()
         while self._process.state() is QProcess.Running:
             while self.is_paused:
                 time.sleep(0)
-
             pair = self._pairdeq.pop()
-            frame_a, frame_b = load_pair(*pair, tf)
-            start = time.time()
-            a_gpu, b_gpu = frame_a.to(device), frame_b.to(device)
-            print(f"Convert to {device} time {(time.time() - start):.3f} sec", end =' ')
-            vx, vy = extended_search_area_piv(a_gpu, b_gpu, window_size=wind_size, 
-                                            overlap=overlap, )
-            x, y = get_coordinates(frame_a.shape, wind_size, overlap)
-            self.signals.output.emit((frame_a, x, y, vx, vy))
-            end_time = time.time()
-            print(f"Batch is finished in {(end_time - start):.3f} sec")
+
+class WatchMan(QObject):
+    signals = WorkerSignals()
+    def __init__(self, folder, piv_params: PIVparams, *args, **kwargs) -> None:
+        super().__init__(*args, parent=None, **kwargs)
