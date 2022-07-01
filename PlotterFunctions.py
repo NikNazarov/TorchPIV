@@ -1,6 +1,8 @@
 import os
+import re
 import pandas as pd
 import numpy as np
+import json
 from PyQt5.QtWidgets import QMessageBox
 
 def show_message(message: str) -> None:
@@ -21,6 +23,18 @@ def uniquify(path: str):
 
     return path
 
+
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+
+def natural_keys(text):
+    '''
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    '''
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
 def set_width(obj: object, target_type: type, width: int):
     '''
@@ -90,8 +104,62 @@ def reshape_data(data: pd.DataFrame, grid: int) -> dict:
     data = {key: val.values.reshape(-1, grid) for key, val in data.items()}
     return data
 
+class PIVparams(object):
+    """
+    Naive Singletone inplementation 
+    Shared object
 
-class Singleton:
+    """
+    wind_size: int = 0
+    overlap: int = 0 
+    scale: float = 0.0
+    dt: float = 0.0
+    device: str = ""
+    iterations: int = 1
+    resize: int = 0
+    file_fmt: str = ""
+    save_opt: str = "" 
+    save_dir: str = "" 
+    iter_scale: float = 2.0
+    folder: str = ""
+    regime: str = ""
+
+    @classmethod
+    def __setattr__(cls, name, val):
+        setattr(cls, name, val)
+
+    @classmethod
+    def __getattr__(cls, name):
+        return getattr(cls, name)
+
+    @classmethod
+    def from_json(cls):
+        """
+        read json settings file
+        convert to dict
+        set attributes
+        """
+        with open("settings.json", 'r') as file:
+            data = json.load(file)
+            for key, val in data.items():
+                if key not in dir(cls):
+                    continue
+                setattr(cls, key, val)
+    @classmethod
+    def to_json(cls):
+        """
+        Read attributes
+        convert to dict
+        save to json file
+        """
+        data = {
+            name: getattr(cls, name) for name in dir(cls) 
+            if not callable(getattr(cls, name)) and not name.startswith("__")
+        }
+        with open("settings.json", 'w') as file:
+            json.dump(data, file)
+
+class Singleton(object):
     """Alex Martelli implementation of Singleton (Borg)
     http://python-3-patterns-idioms-test.readthedocs.io/en/latest/Singleton.html"""
     _shared_state = {}

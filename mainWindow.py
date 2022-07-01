@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         exitAction = QAction("Exit", self)
         exitAction.triggered.connect(self.close)
         fileMenu = menuBar.addMenu("&File")
-        settings = QAction("Analys Settings", self)
+        settings = QAction("Analysis Settings", self)
         settings.triggered.connect(self.controls.show_settings)
         menuBar.addAction(settings)
         viewControls = QAction("View Settings", self)

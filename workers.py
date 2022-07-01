@@ -1,10 +1,10 @@
 import os
 import sys
 import time
+from xxlimited import new
 import numpy as np
-import subprocess
 from collections import deque
-from ControlsWidgets import PIVparams
+from PlotterFunctions import PIVparams, natural_keys
 from PyQt5.QtCore import QObject, pyqtSignal, QProcess
 from PlotterFunctions import save_table
 from torchPIV import OfflinePIV, free_cuda_memory
@@ -189,5 +189,32 @@ class OnlineWorker(QObject):
 
 class WatchMan(QObject):
     signals = WorkerSignals()
-    def __init__(self, folder, piv_params: PIVparams, *args, **kwargs) -> None:
+    def __init__(self, folder: str, file_fmt: str, *args, **kwargs) -> None:
         super().__init__(*args, parent=None, **kwargs)
+        self.folder = folder
+        self.file_fmt = file_fmt
+        self.filenames = {os.path.join(self.folder, name) for name 
+            in os.listdir(folder) if name.endswith(file_fmt)}
+        self.img_pairs: list = []
+
+    def update(self):
+        filenames = {os.path.join(self.folder, name) for name 
+            in os.listdir(self.folder) if name.endswith(self.file_fmt)}
+        new_files = [*filenames.difference(self.filenames)]
+        self.filenames = filenames
+        self.set_image_pairs(new_files=new_files)
+
+    def set_image_pairs(self, new_files: list[str]):
+        new_files.sort(key=natural_keys)
+        if len(new_files) % 2 == 0 and new_files[0].endswith("_a" + self.file_fmt):
+            self.img_pairs = list(zip(new_files[::2], new_files[1::2]))
+        elif len(new_files) % 2 != 0 and new_files[0].endswith("_a" + self.file_fmt):
+            self.img_pairs = list(zip(new_files[:-1:2], new_files[1:-1:2]))
+        elif len(new_files) % 2 != 0 and new_files[0].endswith("_b" + self.file_fmt):
+            self.img_pairs = list(zip(new_files[1::2], new_files[2::2]))
+        elif len(new_files) % 2 == 0 and new_files[0].endswith("_b" + self.file_fmt):
+            self.img_pairs = list(zip(new_files[1:-1:2], new_files[2:-1:2]))
+    def get_image_pairs(self):
+        if self.img_pairs:
+            return self.img_pairs
+        

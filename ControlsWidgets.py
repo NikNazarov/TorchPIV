@@ -5,7 +5,7 @@ import torch
 from bisect import bisect_left
 from PyQt5.QtGui import QDoubleValidator, QIntValidator
 from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot  
-from PlotterFunctions import Database, set_width
+from PlotterFunctions import Database, PIVparams, set_width
 from PyQt5.QtWidgets import (
     QFrame,
     QLabel,
@@ -55,60 +55,6 @@ class ListSlider(QSlider):
         return index
 
 
-class PIVparams(object):
-    """
-    Naive Singletone realization 
-    Shared object
-
-    """
-    wind_size: int = 0
-    overlap: int = 0 
-    scale: float = 0.0
-    dt: float = 0.0
-    device: str = ""
-    iterations: int = 1
-    resize: int = 0
-    file_fmt: str = ""
-    save_opt: str = "" 
-    save_dir: str = "" 
-    iter_scale: float = 2.0
-    folder: str = ""
-    regime: str = ""
-
-    @classmethod
-    def __setattr__(cls, name, val):
-        setattr(cls, name, val)
-
-    @classmethod
-    def __getattr__(cls, name):
-        return getattr(cls, name)
-
-    @classmethod
-    def from_json(cls):
-        """
-        read json settings file
-        convert to dict
-        set attributes
-        """
-        with open("settings.json", 'r') as file:
-            data = json.load(file)
-            for key, val in data.items():
-                if key not in dir(cls):
-                    continue
-                setattr(cls, key, val)
-    @classmethod
-    def to_json(cls):
-        """
-        Read attributes
-        convert to dict
-        save to json file
-        """
-        data = {
-            name: getattr(cls, name) for name in dir(cls) 
-            if not callable(getattr(cls, name)) and not name.startswith("__")
-        }
-        with open("settings.json", 'w') as file:
-            json.dump(data, file)
 
 class Settings(QWidget):
     def __init__(self, *args, **kwargs) -> None:

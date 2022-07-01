@@ -1,13 +1,13 @@
 import numpy as np
 import torch
 import os
-import re
 from typing import Generator, Tuple
 from torch.utils.data import Dataset
 from scipy import interpolate
 import cv2
 import fastSubpixel
 from time import time
+from PlotterFunctions import natural_keys
 
 class DeviceMap:
     devicies = {
@@ -16,20 +16,8 @@ class DeviceMap:
     }
     devicies["cpu"] = torch.device("cpu")
 
-def atoi(text):
-    return int(text) if text.isdigit() else text
-
 def free_cuda_memory():
     if torch.cuda.is_available(): torch.cuda.empty_cache() 
-
-
-def natural_keys(text):
-    '''
-    alist.sort(key=natural_keys) sorts in human order
-    http://nedbatchelder.com/blog/200712/human_sorting.html
-    (See Toothy's implementation in the comments)
-    '''
-    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
 def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
     """
