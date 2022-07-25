@@ -376,7 +376,7 @@ def get_coordinates(image_size, search_area_size, overlap):
         np.arange(field_shape[-2]) * (search_area_size - overlap)
         + (search_area_size) / 2.0
     )
-
+    
     # moving coordinates further to the center, so that the points at the
     # extreme left/right or top/bottom
     # have the same distance to the window edges. For simplicity only integer

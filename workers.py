@@ -1,11 +1,9 @@
 import os
-import sys
 import time
-from xxlimited import new
 import numpy as np
 from collections import deque
 from PlotterFunctions import PIVparams, natural_keys
-from PyQt5.QtCore import QObject, pyqtSignal, QProcess
+from PyQt5.QtCore import QObject, pyqtSignal, QThread, QTimer
 from PlotterFunctions import save_table
 from torchPIV import OfflinePIV, free_cuda_memory
 
@@ -130,62 +128,19 @@ class OnlineWorker(QObject):
         self.is_paused  = False
         self.is_running = True
         self._pair    = []
-        self._pairdeq = deque()
-        self._process = QProcess() # Keep a reference to the QProcess (e.g. on self) while it's running.
-        self._process.readyReadStandardOutput.connect(self.handle_stdout)
-        self._process.readyReadStandardError.connect(self.handle_stderr)
-        self._process.stateChanged.connect(self.handle_state)
-        self._process.finished.connect(self.process_finished)  # Clean up once complete.
-
-
-    def handle_stderr(self):
-        data = self._process.readAllStandardError()
-        stderr = bytes(data).decode("utf8")
-        self.message(stderr)
-
-    def handle_stdout(self):
-        data = self._process.readAllStandardOutput()
-        stdout = bytes(data).decode("utf8")
-        if stdout.endswith(
-            f"a{self.piv_params.file_fmt}"
-            ):
-            self._pair.append(stdout)
-        elif stdout.endswith(
-            f"b{self.piv_params.file_fmt}"
-            ) and self._pair:
-            self._pair.append(stdout)
-            self._pairdeq.append(self._pair)
-            self._pair = []
-        
-        self.message(stdout)
-
-    def handle_state(self, state):
-        states = {
-            QProcess.NotRunning: 'Not running',
-            QProcess.Starting: 'Starting',
-            QProcess.Running: 'Running',
-        }
-        state_name = states[state]
-        self.message(f"State changed: {state_name}")
-
-    def process_finished(self):
-        self.message("Process finished.")
-        self._process = None
-
-    def message(self, string: str):
-        print(string)
+        self.timer = QTimer()
+        self.watchman = WatchMan(piv_params.folder, piv_params.file_fmt)
 
     def run(self):
         """Long PIV task.
         Emits: 
         img, x_grid, y_grid, U, V: np.ndarray
         """
-        self._process.start(sys.executable, 
-                    ['watchman.py', self.folder])
-        while self._process.state() is QProcess.Running:
-            while self.is_paused:
+        while self.is_running:
+            while self.is_paused and self.is_running: 
                 time.sleep(0)
-            pair = self._pairdeq.pop()
+
+
 
 class WatchMan(QObject):
     signals = WorkerSignals()
