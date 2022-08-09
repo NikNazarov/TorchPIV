@@ -60,7 +60,7 @@ class PIVDataset(Dataset):
             index = index.tolist()
 
         pair = self.img_pairs[index]
-        #imread function working only with latin file path
+        #imread function works only with latin file path
         img_b = cv2.imread(pair[1], cv2.IMREAD_GRAYSCALE)
         img_a = cv2.imread(pair[0], cv2.IMREAD_GRAYSCALE)
         if self.transform:
@@ -71,7 +71,7 @@ class PIVDataset(Dataset):
 
 def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tensor:
     """
-    This is a nice numpy an torch trick. The concept of numpy strides should be
+    This is a nice numpy and torch trick. The concept of numpy strides should be
     clear to understand this code.
 
     Basically, we have a 2d array and we want to perform cross-correlation
@@ -306,18 +306,10 @@ def extended_search_area_piv(
 
     if (window_size > frame_a.shape[-2]) or (window_size > frame_a.shape[-1]):
         raise ValueError("window size cannot be larger than the image")
-    torch.cuda.synchronize()
-    start = time()
     n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=window_size, overlap=overlap)
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
-    torch.cuda.synchronize()
-    print(f"moving window time {(time() - start):.3f} sec", end=' ')
-    torch.cuda.synchronize()
-    corr_time = time()
     corr = correalte_fft(aa, bb)
-    torch.cuda.synchronize()
-    print(f"correlation time {(time() - corr_time):.3f} sec")
     u, v = c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=False)
     return u, v
 
@@ -487,6 +479,7 @@ class OfflinePIV:
 
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
+            del a, b, a_gpu, b_gpu
             yield x, y, u, v
             end_time = time()
             print(f"Batch finished in {(end_time - start):.3f} sec")

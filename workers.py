@@ -9,14 +9,12 @@ from torchPIV import OfflinePIV, free_cuda_memory
 
 
 
-class WorkerSignals(QObject):
+class Worker(QObject):
     finished = pyqtSignal(dict)
     progress = pyqtSignal(int)
     output   = pyqtSignal(dict)
 
-class PIVWorker(QObject):
-    signals = WorkerSignals()
-
+class PIVWorker(Worker):
     def __init__(self, folder, piv_params: PIVparams, *args, **kwargs) -> None:
         super().__init__(*args, parent=None, **kwargs)
         self.folder     = folder
@@ -59,8 +57,8 @@ class PIVWorker(QObject):
 
             u_inst.append(u.astype(np.float64))
             v_inst.append(v.astype(np.float64))
-            self.signals.progress.emit((i + 1)/len(piv_gen)*100)
-            self.signals.output.emit({
+            self.progress.emit((i + 1)/len(piv_gen)*100)
+            self.output.emit({
             "x[mm]": x,
             "y[mm]": y,
             "Vx[m/s]": u,
@@ -74,18 +72,18 @@ class PIVWorker(QObject):
             self.avg_v = np.zeros_like(v, dtype=np.float64)
 
         print(f"Avg PIV time {((time.time() - start)/(i+1)*1000):.0f} ms")
-        self.signals.progress.emit(0)
+        self.progress.emit(0)
         u_inst = np.stack(u_inst, axis=0)
         v_inst = np.stack(v_inst, axis=0)
         self.avg_u = np.mean(u_inst, axis=0, dtype=np.float64) 
         self.avg_v = np.mean(v_inst, axis=0, dtype=np.float64)
-        self.signals.progress.emit(25)
+        self.progress.emit(25)
         uu = np.mean((u_inst - self.avg_u)**2, axis=0, dtype=np.float64)
-        self.signals.progress.emit(50)
+        self.progress.emit(50)
         vv = np.mean((v_inst - self.avg_v)**2, axis=0, dtype=np.float64)
-        self.signals.progress.emit(75)
+        self.progress.emit(75)
         uv = np.mean((u_inst - self.avg_u)*(v_inst - self.avg_v), axis=0, dtype=np.float64)
-        self.signals.progress.emit(100)
+        self.progress.emit(100)
         out = (x, y, self.avg_u, self.avg_v)
 
 
@@ -112,12 +110,11 @@ class PIVWorker(QObject):
         }
         name = os.path.basename(os.path.normpath(self.folder))
         save_table(f"{name}.txt", self.piv_params.save_dir, table.copy())
-        self.signals.finished.emit(table)
+        self.finished.emit(table)
 
 
 
-class OnlineWorker(QObject):
-    signals = WorkerSignals()
+class OnlineWorker(Worker):
 
     def __init__(self, folder, piv_params: PIVparams, *args, **kwargs) -> None:
         super().__init__(*args, parent=None, **kwargs)
@@ -143,7 +140,6 @@ class OnlineWorker(QObject):
 
 
 class WatchMan(QObject):
-    signals = WorkerSignals()
     def __init__(self, folder: str, file_fmt: str, *args, **kwargs) -> None:
         super().__init__(*args, parent=None, **kwargs)
         self.folder = folder
@@ -159,7 +155,7 @@ class WatchMan(QObject):
         self.filenames = filenames
         self.set_image_pairs(new_files=new_files)
 
-    def set_image_pairs(self, new_files: list[str]):
+    def set_image_pairs(self, new_files: list):
         new_files.sort(key=natural_keys)
         if len(new_files) % 2 == 0 and new_files[0].endswith("_a" + self.file_fmt):
             self.img_pairs = list(zip(new_files[::2], new_files[1::2]))

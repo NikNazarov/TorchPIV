@@ -3,6 +3,7 @@ import traceback
 import warnings
 warnings.filterwarnings("ignore")
 import sys
+import gc
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self.controls.piv_button.clicked.connect(self.stop_piv)
         self.timer = QTimer()
         self.calc_thread = None
+        self.worker = None
         self.timer.timeout.connect(self.piv_widget.piv_view.set_field)
         self.initUI()
 
@@ -103,6 +105,11 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self.piv_widget.controls.set_field_box()
         self.piv_widget.piv_view.set_field()
+        self.calc_thread.quit()
+        self.calc_thread.wait()
+        self.worker = None
+        self.controls.piv_button.setText("Start PIV")
+        print(gc.collect())
     
     def pause_piv(self):
         if self.calc_thread is None:
@@ -132,7 +139,7 @@ class MainWindow(QMainWindow):
 
         self.timer.start(2000)
         self.controls.settings.state.to_json()
-        self.calc_thread = QThread(parent=None)
+        self.calc_thread = QThread()
         piv_params = self.controls.settings.state
         if self.controls.settings.regime_box.currentText() == "offline":
             self.worker = PIVWorker(self.controls.settings.state.folder,
@@ -145,21 +152,22 @@ class MainWindow(QMainWindow):
         # Step 4: Move worker to the thread
         self.worker.moveToThread(self.calc_thread)
         # Step 5: Connect signals and slots
-        self.calc_thread.started.connect(self.worker.run)
-        self.worker.signals.finished.connect(self.calc_thread.quit)
-        self.worker.signals.finished.connect(self.worker.deleteLater)
-        self.calc_thread.finished.connect(self.calc_thread.deleteLater)
-        self.worker.signals.output.connect(self.reportOutput)
-        self.worker.signals.progress.connect(self.reportProgress)
-        self.worker.signals.finished.connect(self.reportFinish)
-        # Step 6: Start the thread
-        self.calc_thread.start()
-
-        # Final resets
         self._disable_buttons()
         self.calc_thread.finished.connect(
             self._enable_buttons
         )
+        self.calc_thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.calc_thread.finished.connect(self.worker.deleteLater)
+        self.calc_thread.finished.connect(self.calc_thread.deleteLater)
+        self.worker.output.connect(self.reportOutput)
+        self.worker.progress.connect(self.reportProgress)
+        self.worker.finished.connect(self.reportFinish)
+        # Step 6: Start the thread
+        self.calc_thread.start()
+
+        # Final resets
+        
     def _disable_buttons(self):
         self.controls.settings.confirm.setEnabled(False)
 
