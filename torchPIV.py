@@ -17,6 +17,7 @@ class DeviceMap:
     devicies["cpu"] = torch.device("cpu")
 
 def free_cuda_memory():
+    # torch.cuda.synchronize()
     if torch.cuda.is_available(): torch.cuda.empty_cache() 
 
 def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
@@ -206,10 +207,7 @@ def c_correlation_to_displacement(
     default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
     corr += eps
     corr = corr.cpu().numpy()
-    first_peak = first_peak.cpu().numpy()
-
-    print(f"corr size {((corr.size * corr.itemsize) / 1024 / 1024):.2f} Mb", end=" ")
-    
+    first_peak = first_peak.cpu().numpy()    
 
     temp = fastSubpixel.find_subpixel_position(corr, first_peak, n_rows, n_cols)
     peak = (np.array(temp).T - default_peak_position.T).T
@@ -416,7 +414,6 @@ def piv_iteration(
     mask_v = (dv > v0) * (np.rint(v0) > 0)
     v[mask_v] = v0[mask_v]
     u[mask_u] = u0[mask_u]
-    torch.cuda.synchronize()
     print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
     return u, v
 
@@ -449,40 +446,40 @@ class OfflinePIV:
         self._dataset = PIVDataset(folder, file_fmt, 
                        transform=ToTensor(dtype=torch.uint8)
                       )
-        self.loader = torch.utils.data.DataLoader(self._dataset, 
-            batch_size=None, num_workers=0, pin_memory=True)
 
     def __len__(self) -> int:
         return len(self._dataset)
 
     def __call__(self) -> Generator:
+        loader = torch.utils.data.DataLoader(self._dataset, 
+            batch_size=None, num_workers=0, pin_memory=True)
         end_time = time() 
-        for a, b in self.loader:
-            print(f"Load time {(time() - end_time):.3f} sec", end=' ')
-            start = time()
-            a_gpu, b_gpu = a.to(self._device), b.to(self._device)
-            print(f"Convert to {self._device} time {(time() - start):.3f} sec", end =' ')
-            u, v = extended_search_area_piv(a_gpu, b_gpu, window_size=self._wind_size, 
-                                            overlap=self._overlap, dt=1)
-            x, y = get_coordinates(a.shape, self._wind_size, self._overlap)
+        for a, b in loader:
+             with torch.no_grad():
 
-            bn = b.numpy()
-            an = a.numpy()
-            wind_size = self._wind_size
-            for _ in range(self._iter-1):
-                u = resize_iteration(u, iter=self._resize)
-                v = resize_iteration(v, iter=self._resize)
-                x = resize_iteration(x, iter=self._resize)
-                y = resize_iteration(y, iter=self._resize)
-                wind_size = int(wind_size//self._iter_scale)
-                u, v = piv_iteration(an, bn, x.astype(np.int64), y.astype(np.int64), u, v, wind_size, self._device)
+                print(f"Load time {(time() - end_time):.3f} sec", end=' ')
+                start = time()
+                a_gpu, b_gpu = a.to(self._device), b.to(self._device)
+                u, v = extended_search_area_piv(a_gpu, b_gpu, window_size=self._wind_size, 
+                                                overlap=self._overlap, dt=1)
+                x, y = get_coordinates(a.shape, self._wind_size, self._overlap)
 
-            u =  np.flip(u, axis=0)
-            v = -np.flip(v, axis=0)
-            del a, b, a_gpu, b_gpu
-            yield x, y, u, v
-            end_time = time()
-            print(f"Batch finished in {(end_time - start):.3f} sec")
+                bn = b.numpy()
+                an = a.numpy()
+                wind_size = self._wind_size
+                for _ in range(self._iter-1):
+                    u = resize_iteration(u, iter=self._resize)
+                    v = resize_iteration(v, iter=self._resize)
+                    x = resize_iteration(x, iter=self._resize)
+                    y = resize_iteration(y, iter=self._resize)
+                    wind_size = int(wind_size//self._iter_scale)
+                    u, v = piv_iteration(an, bn, x.astype(np.int64), y.astype(np.int64), u, v, wind_size, self._device)
+
+                u =  np.flip(u, axis=0)
+                v = -np.flip(v, axis=0)
+                yield x, y, u, v
+                end_time = time()
+                print(f"Batch finished in {(end_time - start):.3f} sec")
 
 
 class OnlinePIV:

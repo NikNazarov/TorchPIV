@@ -18,11 +18,9 @@ from PyQt5.QtWidgets import (
 )
 from PIVwidgets import PIVWidget
 from ControlsWidgets import AnalysControlWidget
-from PlotterFunctions import show_message, Database
+from PlotterFunctions import Database, show_message
 from workers import PIVWorker, OnlineWorker
-
-
- 
+gc.disable() 
 
 class MainWindow(QMainWindow):
 
@@ -98,9 +96,10 @@ class MainWindow(QMainWindow):
         self.controls.pbar.setValue(value)
 
     def reportFinish(self, output: dict):
-        show_message(
-            f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
-            )
+        if self.controls.settings.state.save_opt != "Dont save":
+            show_message(
+                f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
+                )
         self.data.set(output)
         self.timer.stop()
         self.piv_widget.controls.set_field_box()
@@ -109,7 +108,7 @@ class MainWindow(QMainWindow):
         self.calc_thread.wait()
         self.worker = None
         self.controls.piv_button.setText("Start PIV")
-        print(gc.collect())
+        gc.collect()
     
     def pause_piv(self):
         if self.calc_thread is None:
@@ -142,11 +141,9 @@ class MainWindow(QMainWindow):
         self.calc_thread = QThread()
         piv_params = self.controls.settings.state
         if self.controls.settings.regime_box.currentText() == "offline":
-            self.worker = PIVWorker(self.controls.settings.state.folder,
-                                    piv_params=piv_params)
+            self.worker = PIVWorker(piv_params=piv_params)
         elif self.controls.settings.regime_box.currentText() == "online":
-            self.worker = OnlineWorker(self.controls.settings.state.folder,
-                                        piv_params=piv_params)
+            self.worker = OnlineWorker(piv_params=piv_params)
 
         # self.worker.is_running = True
         # Step 4: Move worker to the thread

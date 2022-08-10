@@ -15,9 +15,9 @@ class Worker(QObject):
     output   = pyqtSignal(dict)
 
 class PIVWorker(Worker):
-    def __init__(self, folder, piv_params: PIVparams, *args, **kwargs) -> None:
+    def __init__(self, piv_params: PIVparams, *args, **kwargs) -> None:
         super().__init__(*args, parent=None, **kwargs)
-        self.folder     = folder
+        self.folder     = piv_params.folder
         self.piv_params = piv_params
         self.avg_u      = None
         self.avg_v      = None
@@ -58,14 +58,16 @@ class PIVWorker(Worker):
             u_inst.append(u.astype(np.float64))
             v_inst.append(v.astype(np.float64))
             self.progress.emit((i + 1)/len(piv_gen)*100)
-            self.output.emit({
+            output = {
             "x[mm]": x,
             "y[mm]": y,
             "Vx[m/s]": u,
-            "Vy[m/s]": v}
-            )
-        
-        free_cuda_memory()
+            "Vy[m/s]": v
+            }
+            if self.piv_params.save_opt == "Save all":
+                name = os.path.basename(os.path.normpath(self.folder))
+                save_table(f"{name}_pair.txt", self.piv_params.save_dir, output.copy())
+            self.output.emit(output)
         
         if self.avg_u is None:
             self.avg_u = np.zeros_like(u, dtype=np.float64)
@@ -108,8 +110,10 @@ class PIVWorker(Worker):
             "W[1/s]": (dVx - dUy),
             "S[1/s]": (dVx + dUy),
         }
+        free_cuda_memory()
         name = os.path.basename(os.path.normpath(self.folder))
-        save_table(f"{name}.txt", self.piv_params.save_dir, table.copy())
+        if self.piv_params.save_opt != "Dont save":
+            save_table(f"{name}_statistics.txt", self.piv_params.save_dir, table.copy())
         self.finished.emit(table)
 
 
