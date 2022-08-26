@@ -102,7 +102,7 @@ def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tens
 def correalte_fft(images_a, images_b) -> torch.Tensor:
     """
     Compute cross correlation based on fft method
-    Between two torch.Tensors of shape [1, c, width, height]
+    Between two torch.Tensors of shape [c, width, height]
     fft performed over last two dimensions of tensors
     """
     corr = torch.fft.fftshift(torch.fft.irfft2(torch.fft.rfft2(images_a).conj() *
@@ -358,12 +358,12 @@ def get_coordinates(image_size, search_area_size, overlap):
     # compute grid coordinates of the search area window centers
     # note the field_shape[1] (columns) for x
     x = (
-        np.arange(field_shape[-1]) * (search_area_size - overlap)
+        np.arange(field_shape[-1], dtype=np.int32) * (search_area_size - overlap)
         + (search_area_size) / 2.0
     )
     # note the rows in field_shape[0]
     y = (
-        np.arange(field_shape[-2]) * (search_area_size - overlap)
+        np.arange(field_shape[-2], dtype=np.int32) * (search_area_size - overlap)
         + (search_area_size) / 2.0
     )
     
@@ -398,17 +398,19 @@ def piv_iteration(
     wind_size: int, 
     device: torch.device)->Tuple[np.ndarray, np.ndarray]:
     iter_proc = time()
-    uin = np.rint(u0/2).astype(np.int64)
-    vin = np.rint(v0/2).astype(np.int64)
+    vin = v0/2
+    uin = u0/2
+    bb2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x, y, uin, vin, wind_size))
+    aa2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x, y, -uin, -vin, wind_size))
 
-    bb2 = torch.from_numpy(fastSubpixel.iter_displacement(frame_b, x, y, uin, vin, wind_size))
-    aa2 = torch.from_numpy(fastSubpixel.iter_displacement(frame_a, x, y, -uin, -vin, wind_size))
     aa2, bb2 = aa2.to(device), bb2.to(device)
     corr = correalte_fft(aa2, bb2)
     du, dv = c_correlation_to_displacement(corr, x.shape[-2], x.shape[-1], interp_nan=True)
+    # v = 2*vin + dv
+    # u = 2*uin + du
 
-    v = 2*vin + dv
-    u = 2*uin + du
+    v = 2*np.rint(vin) + dv
+    u = 2*np.rint(uin) + du
 
     mask_u = (du > u0) * (np.rint(u0) > 0)
     mask_v = (dv > v0) * (np.rint(v0) > 0)
@@ -473,7 +475,7 @@ class OfflinePIV:
                     x = resize_iteration(x, iter=self._resize)
                     y = resize_iteration(y, iter=self._resize)
                     wind_size = int(wind_size//self._iter_scale)
-                    u, v = piv_iteration(an, bn, x.astype(np.int64), y.astype(np.int64), u, v, wind_size, self._device)
+                    u, v = piv_iteration(an, bn, x.astype(np.int32), y.astype(np.int32), u, v, wind_size, self._device)
 
                 u =  np.flip(u, axis=0)
                 v = -np.flip(v, axis=0)

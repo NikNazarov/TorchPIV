@@ -118,6 +118,7 @@ class PIVcanvas(MplCanvas):
         self.key           = None
         self.averaged_data = None
         self.data_index    = 0
+        self.drow_grid = False
         self.axes.axis("off")
 
 
@@ -182,6 +183,8 @@ class PIVcanvas(MplCanvas):
                                             vmax=self.pos_avg*self.pos_scale,
                                             )
         self.cb = self.fig.colorbar(self.img_data, ax=self.axes)
+        if self.drow_grid:
+            self.axes.grid(True, linestyle = '--', linewidth = 0.7)
         self.update_canvas()
 
     def set_v_max(self, value):
@@ -234,12 +237,14 @@ class PIVcanvas(MplCanvas):
 
     def show_grid(self):
         self.axes.grid(True, linestyle = '--', linewidth = 0.7)
+        self.drow_grid = True
         self.update_canvas()
     def show_axis(self):
         self.axes.axis("on")
         self.update_canvas()
     def hide_grid(self):
         self.axes.grid(False)
+        self.drow_grid = False
         self.update_canvas()
     def hide_axis(self):
         self.axes.axis("off")
