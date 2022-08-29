@@ -13,6 +13,7 @@ class Worker(QObject):
     finished = pyqtSignal(dict)
     progress = pyqtSignal(int)
     output   = pyqtSignal(dict)
+    failed   = pyqtSignal()
 
 class PIVWorker(Worker):
     def __init__(self, piv_params: PIVparams, *args, **kwargs) -> None:
@@ -40,8 +41,12 @@ class PIVWorker(Worker):
             iterations=self.piv_params.iterations,
             iter_scale=self.piv_params.iter_scale
         )
+        if len(piv_gen) == 0:
+            self.failed.emit()
+            return
         u_inst = []
         v_inst = [] 
+        x = y = u = v = np.zeros((10, 10))
         start = time.time()
         for i, out in enumerate(piv_gen()):
             while self.is_paused and self.is_running: 
@@ -73,10 +78,11 @@ class PIVWorker(Worker):
             self.avg_u = np.zeros_like(u, dtype=np.float64)
             self.avg_v = np.zeros_like(v, dtype=np.float64)
 
-        print(f"Avg PIV time {((time.time() - start)/(i+1)*1000):.0f} ms")
+        print(f"Avg PIV time {((time.time() - start)/(len(piv_gen))*1000):.0f} ms")
         self.progress.emit(0)
-        u_inst = np.stack(u_inst, axis=0)
-        v_inst = np.stack(v_inst, axis=0)
+        if u_inst:
+            u_inst = np.stack(u_inst, axis=0)
+            v_inst = np.stack(v_inst, axis=0)
         self.avg_u = np.mean(u_inst, axis=0, dtype=np.float64) 
         self.avg_v = np.mean(v_inst, axis=0, dtype=np.float64)
         self.progress.emit(25)
@@ -92,7 +98,6 @@ class PIVWorker(Worker):
         mid_i, mid_j = x.shape[-2]//2, x.shape[-1]//2
         dx = (x[mid_i, mid_j + 1] - x[mid_i, mid_j]) / 1000
         dy = (y[mid_i + 1, mid_j] - y[mid_i, mid_j]) / 1000
-
         dUy, dUx = np.gradient(self.avg_u, dx, dy, edge_order=2) # U  - Xcomp
         dVy, dVx = np.gradient(self.avg_v, dx, dy, edge_order=2) # V  - Ycomp
         table = {

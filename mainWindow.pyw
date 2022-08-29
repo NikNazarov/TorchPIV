@@ -95,6 +95,15 @@ class MainWindow(QMainWindow):
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
 
+    def reportFail(self):
+        show_message(f'Dataset is empty')
+        self.timer.stop()
+        self.calc_thread.quit()
+        self.calc_thread.wait()
+        self.worker = None
+        self.controls.piv_button.setText("Start PIV")
+        gc.collect()
+
     def reportFinish(self, output: dict):
         if self.controls.settings.state.save_opt != "Dont save":
             show_message(
@@ -160,6 +169,7 @@ class MainWindow(QMainWindow):
         self.worker.output.connect(self.reportOutput)
         self.worker.progress.connect(self.reportProgress)
         self.worker.finished.connect(self.reportFinish)
+        self.worker.failed.connect(self.reportFail)
         # Step 6: Start the thread
         self.calc_thread.start()
 
