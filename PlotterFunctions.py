@@ -116,13 +116,13 @@ class PIVparams(object):
     dt: float = 0.0
     device: str = ""
     iterations: int = 1
-    resize: int = 0
     file_fmt: str = ""
     save_opt: str = "" 
     save_dir: str = "" 
     iter_scale: float = 2.0
     folder: str = ""
     regime: str = ""
+    iter_mod:str=""
 
     @classmethod
     def __setattr__(cls, name, val):

@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import os
+import torch.nn.functional as F
 from typing import Generator, Tuple
 from torch.utils.data import Dataset
 from scipy import interpolate
@@ -15,6 +16,7 @@ class DeviceMap:
         for i in range(torch.cuda.device_count())
     }
     devicies["cpu"] = torch.device("cpu")
+
 
 def free_cuda_memory():
     # torch.cuda.synchronize()
@@ -254,8 +256,8 @@ def get_field_shape(image_size, search_area_size, overlap) -> Tuple:
     ) + 1
     return field_shape
 
-def resize_iteration(arr: np.ndarray, iter: int):
-    arr = cv2.resize(arr, None, fx=iter, fy=iter, interpolation=cv2.INTER_LINEAR)
+def resize_iteration(arr: np.ndarray, shape: tuple=None):
+    arr = cv2.resize(arr, shape, interpolation=cv2.INTER_LINEAR)
     # Depricated method, may use later
     # arr = tinterpolate(torch.from_numpy(arr[None, None, ...]), scale_factor=2, mode='bilinear', align_corners=True).numpy()
     return arr.squeeze()
@@ -265,7 +267,7 @@ def extended_search_area_piv(
     frame_b,
     window_size,
     overlap=0,
-    dt=1
+    device: torch.device=torch.device("cpu")
 ) -> Tuple[np.ndarray]:
     """Standard PIV cross-correlation algorithm, with an option for
     extended area search that increased dynamic range. The search region
@@ -298,18 +300,19 @@ def extended_search_area_piv(
 
     """
 
-   
+    frame_a, frame_b = frame_a.to(device), frame_b.to(device)
     if overlap >= window_size:
         raise ValueError("Overlap has to be smaller than the window_size")
 
     if (window_size > frame_a.shape[-2]) or (window_size > frame_a.shape[-1]):
         raise ValueError("window size cannot be larger than the image")
     n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=window_size, overlap=overlap)
+    x, y = get_coordinates(frame_a.shape, window_size, overlap)
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
     corr = correalte_fft(aa, bb)
     u, v = c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=False)
-    return u, v
+    return u, v, x, y
 
 def get_coordinates(image_size, search_area_size, overlap):
     """Compute the x, y coordinates of the centers of the interrogation windows.
@@ -388,26 +391,91 @@ def get_coordinates(image_size, search_area_size, overlap):
 
     return np.meshgrid(x, y)
 
-def piv_iteration(
-    frame_a: np.ndarray, 
-    frame_b: np.ndarray, 
-    x:       np.ndarray, 
-    y:       np.ndarray, 
+def piv_iteration_CWS(
+    frame_a: torch.Tensor,
+    frame_b: torch.Tensor, 
+    x0: np.ndarray,  
+    y0: np.ndarray,  
+    u0: np.ndarray,  
+    v0: np.ndarray,
+    wind_size: int, 
+    overlap: int,
+    device: torch.device) -> torch.Tensor:
+
+    iter_proc = time()
+    n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=wind_size, overlap=overlap)
+    x, y = get_coordinates(frame_a.shape, wind_size, overlap)
+    spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
+    spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
+    u0 = spline_u(y[:,0], x[0,:])
+    v0 = spline_v(y[:,0], x[0,:])
+
+    uflat = u0.flatten()
+    vflat = v0.flatten()
+    frame_a, frame_b = frame_a.to(device), frame_b.to(device)
+    aa = moving_window_array(frame_a, wind_size, overlap)[:,None,...].float()
+    bb = moving_window_array(frame_b, wind_size, overlap)[:,None,...].float()
+    
+    affine_transform = torch.tensor([[1., 0., 0.],
+                                    [0., 1., 0.]]).to(device)
+    affine_transform = affine_transform.repeat(aa.shape[0], 1, 1)
+    affine_transform[:, 1, 2] = torch.from_numpy(-vflat/wind_size)
+    affine_transform[:, 0, 2] = torch.from_numpy(-uflat/wind_size)
+    grid = F.affine_grid(affine_transform, aa.size())
+    aa = F.grid_sample(aa, grid, mode='bilinear',padding_mode="border")
+    
+    affine_transform[:, 1, 2] = torch.from_numpy(vflat/wind_size)
+    affine_transform[:, 0, 2] = torch.from_numpy(uflat/wind_size)
+    grid = F.affine_grid(affine_transform, bb.size())
+    bb = F.grid_sample(bb, grid, mode='bilinear',padding_mode="border")
+
+
+    corr = correalte_fft(aa, bb)
+
+    du, dv = c_correlation_to_displacement(corr.squeeze(), n_rows, n_cols, interp_nan=True)
+
+    v = v0 + dv
+    u = u0 + du
+
+    mask_u = (du > u0) * (np.rint(u0) > 0)
+    mask_v = (dv > v0) * (np.rint(v0) > 0)
+    v[mask_v] = v0[mask_v]
+    u[mask_u] = u0[mask_u]
+    print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
+    return u, v, x, y
+
+
+
+
+def piv_iteration_DWS(
+    frame_a: torch.Tensor, 
+    frame_b: torch.Tensor, 
+    x0:       np.ndarray, 
+    y0:       np.ndarray, 
     u0:      np.ndarray, 
     v0:      np.ndarray, 
-    wind_size: int, 
+    wind_size: int,
+    overlap: int, 
     device: torch.device)->Tuple[np.ndarray, np.ndarray]:
+
     iter_proc = time()
+    frame_a = frame_a.numpy()
+    frame_b = frame_b.numpy()
+    n_rows, n_cols = get_field_shape(frame_a.shape, wind_size, overlap)
+    x, y = get_coordinates(frame_a.shape, wind_size, overlap)
+    spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
+    spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
+    u0 = spline_u(y[:,0], x[0,:])
+    v0 = spline_v(y[:,0], x[0,:])
+
     vin = v0/2
     uin = u0/2
-    bb2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x, y, uin, vin, wind_size))
-    aa2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x, y, -uin, -vin, wind_size))
+    bb2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x.astype(np.int32), y.astype(np.int32), uin,  vin, wind_size))
+    aa2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x.astype(np.int32), y.astype(np.int32), -uin, -vin, wind_size))
 
     aa2, bb2 = aa2.to(device), bb2.to(device)
     corr = correalte_fft(aa2, bb2)
-    du, dv = c_correlation_to_displacement(corr, x.shape[-2], x.shape[-1], interp_nan=True)
-    # v = 2*vin + dv
-    # u = 2*uin + du
+    du, dv = c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True)
 
     v = 2*np.rint(vin) + dv
     u = 2*np.rint(uin) + du
@@ -417,7 +485,13 @@ def piv_iteration(
     v[mask_v] = v0[mask_v]
     u[mask_u] = u0[mask_u]
     print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
-    return u, v
+    return u, v, x, y
+
+class IterModMap:
+    functions = {
+        "DWS": piv_iteration_DWS,
+        "CWS": piv_iteration_CWS
+    }
 
 def calc_mean(v_list: list):
     np_list = np.stack(v_list, axis=0)
@@ -431,9 +505,9 @@ class OfflinePIV:
         wind_size: int, 
         overlap: int,
         iterations: int = 1,
+        iter_mod: str="DWS",
         dt: int = 1,
         scale:float = 1.,
-        resize: int = 2,
         iter_scale:float = 2.
                 ) -> None:
         self._wind_size = wind_size
@@ -441,13 +515,13 @@ class OfflinePIV:
         self._dt = dt
         self._iter = iterations
         self._iter_scale = iter_scale
-        self._resize = resize
         self._scale = scale
         
         self._device = DeviceMap.devicies[device]
         self._dataset = PIVDataset(folder, file_fmt, 
                        transform=ToTensor(dtype=torch.uint8)
                       )
+        self._iter_function = IterModMap.functions[iter_mod]
 
     def __len__(self) -> int:
         return len(self._dataset)
@@ -455,27 +529,25 @@ class OfflinePIV:
     def __call__(self) -> Generator:
         loader = torch.utils.data.DataLoader(self._dataset, 
             batch_size=None, num_workers=0, pin_memory=True)
+        spline = None
         end_time = time() 
         for a, b in loader:
              with torch.no_grad():
 
                 print(f"Load time {(time() - end_time):.3f} sec", end=' ')
                 start = time()
-                a_gpu, b_gpu = a.to(self._device), b.to(self._device)
-                u, v = extended_search_area_piv(a_gpu, b_gpu, window_size=self._wind_size, 
-                                                overlap=self._overlap, dt=1)
-                x, y = get_coordinates(a.shape, self._wind_size, self._overlap)
+                u, v, x, y = extended_search_area_piv(a, b, window_size=self._wind_size, 
+                                                overlap=self._overlap, device=self._device)
+                
 
-                bn = b.numpy()
-                an = a.numpy()
+
                 wind_size = self._wind_size
+                overlap = self._overlap
                 for _ in range(self._iter-1):
-                    u = resize_iteration(u, iter=self._resize)
-                    v = resize_iteration(v, iter=self._resize)
-                    x = resize_iteration(x, iter=self._resize)
-                    y = resize_iteration(y, iter=self._resize)
                     wind_size = int(wind_size//self._iter_scale)
-                    u, v = piv_iteration(an, bn, x.astype(np.int32), y.astype(np.int32), u, v, wind_size, self._device)
+                    overlap = int(overlap//self._iter_scale)                    
+                    u, v, x, y = self._iter_function(a, b, x, y, u, v, wind_size, overlap, self._device)
+
 
                 u =  np.flip(u, axis=0)
                 v = -np.flip(v, axis=0)
