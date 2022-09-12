@@ -115,6 +115,7 @@ class MainWindow(QMainWindow):
         self.piv_widget.piv_view.set_field()
         self.calc_thread.quit()
         self.calc_thread.wait()
+        self.calc_thread = None
         self.worker = None
         self.controls.piv_button.setText("Start PIV")
         gc.collect()

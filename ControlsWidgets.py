@@ -103,19 +103,15 @@ class Settings(QWidget):
         overlap_box.addWidget(lbl)
         overlap_box.addWidget(self.overlap)
 
-        self.piv_resize = QComboBox()
-        self.piv_resize.addItems([
-            "No rescale",
-            "2",
-            "3",
-            "4",
-            "5",
-            "6"
+        self.iteration_mod = QComboBox()
+        self.iteration_mod.addItems([
+            "DWS",
+            "CWS"
             ])
-        lbl = QLabel("Field rescale")
-        piv_resize_box = QVBoxLayout()
-        piv_resize_box.addWidget(lbl)
-        piv_resize_box.addWidget(self.piv_resize)
+        lbl = QLabel("Iteration Mod")
+        iteration_mod_box = QVBoxLayout()
+        iteration_mod_box.addWidget(lbl)
+        iteration_mod_box.addWidget(self.iteration_mod)
 
         self.device = QComboBox()
         available_gpus = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
@@ -198,7 +194,7 @@ class Settings(QWidget):
 
         hbox_top.addLayout(wind_size_box)
         hbox_top.addLayout(overlap_box)
-        hbox_top.addLayout(piv_resize_box)
+        hbox_top.addLayout(iteration_mod_box)
         hbox_top.addLayout(file_fmt_box)
         hbox_bot.addLayout(scale_box)
         hbox_bot.addLayout(time_box)
@@ -255,8 +251,8 @@ class Settings(QWidget):
         
         self.wind_size.setText(str(self.state.wind_size))
         self.overlap.setText(str(self.state.overlap))
-        idx = self.piv_resize.findText(str(self.state.resize), Qt.MatchContains)
-        if idx >=0: self.piv_resize.setCurrentIndex(idx)
+        idx = self.iteration_mod.findText(str(self.state.iter_mod), Qt.MatchContains)
+        if idx >=0: self.iteration_mod.setCurrentIndex(idx)
         idx = self.device.findText(self.state.device, Qt.MatchContains)
         if idx >= 0: self.device.setCurrentIndex(idx) 
         self.scale.setText(str(self.state.scale))
@@ -284,10 +280,7 @@ class Settings(QWidget):
         
         self.state.wind_size = int(self.wind_size.text())
         self.state.overlap = int(self.overlap.text())
-        if self.piv_resize.currentText().isdigit():
-            self.state.resize = int(self.piv_resize.currentText())
-        else:
-            self.state.resize = 1
+        self.state.iter_mod =self.iteration_mod.currentText()
         self.state.device   = self.device.currentText()
         self.state.scale    = float(self.scale.text())
         self.state.dt       = int(self.time.text())

@@ -37,7 +37,7 @@ class PIVWorker(Worker):
             file_fmt=self.piv_params.file_fmt,
             wind_size=self.piv_params.wind_size,
             overlap=self.piv_params.overlap,
-            resize=self.piv_params.resize,
+            iter_mod=self.piv_params.iter_mod,
             iterations=self.piv_params.iterations,
             iter_scale=self.piv_params.iter_scale
         )
