@@ -1,7 +1,7 @@
 import numpy as np
 cimport numpy as np
 cimport cython
-from libc.math cimport log, isnan
+from libc.math cimport log, isnan, floor, round
 from cython.parallel import prange
 from cython.view cimport array as cvarray
 
@@ -70,15 +70,15 @@ def find_subpixel_position(
             u[k, m] = peak_j + nom2 / den2
 
     for i in range(3):
-        v = _replace_nans(v)
-        u = _replace_nans(u)
+        _replace_nans(v)
+        _replace_nans(u)
      
     return np.asarray(u), np.asarray(v)
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 @cython.cdivision(True)
-cdef double[:,:] _replace_nans(double[:,:] vec):
+cdef void _replace_nans(double[:,:] vec):
 
     """ 
         Raplace NaNs by averaging neighborhood
@@ -115,24 +115,43 @@ cdef double[:,:] _replace_nans(double[:,:] vec):
                     if not isnan(neighbours[i]): 
                         vec[k, m] += neighbours[i]
                 vec[k, m] = vec[k, m] / (8 - nan_count)
-    return vec
 
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function 
+cdef void _mem_view_sum(
+    unsigned char[:, :] image_a,
+    unsigned char[:, :] image_b,
+    double a, double b
+    ) nogil:
+    cdef:
+        int i, j
+        double value
+    for i in range(image_a.shape[0]):
+        for j in range(image_b.shape[1]):
+            value = a * image_a[i, j] + b * image_b[i, j]
+            if value > 255:
+                value = 255
+            value = round(value)
+            image_a[i, j] = <unsigned char>value
 
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
-def iter_displacement( 
+@cython.cdivision(True)
+def iter_displacement_CWS( 
     unsigned char[:, :] image_b,
-    long long[:, :] x,
-    long long[:, :] y,
-    long long[:, :] dx,
-    long long[:, :] dy,
+    int[:, :] x,
+    int[:, :] y,
+    double[:, :] dx,
+    double[:, :] dy,
     int wind_size
     ):
-    cdef int i, j, dxi, dyi, new_x, new_y, wind_id, old_y, old_x, bound_y_right, bound_y_left, bound_x_right, bound_x_left
-    cdef int wind_half = wind_size//2
-    cdef unsigned char[:,:,:] moving_window_array = np.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=np.uint8)
-    cdef bint valid
+    cdef:
+        int i, j, wind_id, old_y, old_x, bound_y_right, bound_y_left, bound_x_right, bound_x_left, new_x, new_y
+        double dxi, dyi, rdx, rdy
+        int wind_half = wind_size//2
+        unsigned char[:,:,:] moving_window_array = np.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=np.uint8)
+        bint xvalid, yvalid
     for i in range(x.shape[0]):
         for j in range(x.shape[1]):
             wind_id = i*x.shape[1]+j
@@ -154,17 +173,90 @@ def iter_displacement(
 
             dxi = dx[i, j]
             dyi = dy[i, j]
-            new_x = old_x + dxi
-            new_y = old_y + dyi
+            new_x = <int>floor(old_x + dxi)
+            new_y = <int>floor(old_y + dyi)
+            rdx = (old_x + dxi) % 1
+            rdy = (old_y + dyi) % 1
             # Check boundaries after displacement 
-            valid = (
+            xvalid = (
                 (0 <= (new_x - wind_half)) *
-                (image_b.shape[1] >= (new_x + wind_half)) *
+                (image_b.shape[1] >= (new_x + wind_half + 1))
+            )
+
+            yvalid = (
+                (0 <= (new_y - wind_half)) *
+                (image_b.shape[0] >= (new_y + wind_half + 1))
+            )
+            if not xvalid:
+                new_x = old_x
+            if not yvalid:
+                new_y = old_y
+            _mem_view_sum(
+                image_b[(new_y-wind_half):(new_y+wind_half),(new_x-wind_half):(new_x+wind_half)],
+                image_b[(new_y+1-wind_half):(new_y+wind_half+1), (new_x-wind_half):(new_x+wind_half)],
+                rdy, 1-rdy
+                )
+            _mem_view_sum(
+                image_b[(new_y-wind_half):(new_y+wind_half),(new_x-wind_half):(new_x+wind_half)],
+                image_b[(new_y-wind_half):(new_y+wind_half), (new_x+1-wind_half):(new_x+1+wind_half)],
+                rdx, 1-rdx
+                )
+            # print(np.asarray(image_b[(new_y-wind_half):(new_y+wind_half),(new_x-wind_half):(new_x+wind_half)]))
+            moving_window_array[wind_id, :, :] = image_b[(new_y-wind_half):(new_y+wind_half), (new_x-wind_half):(new_x+wind_half)]
+    return np.asarray(moving_window_array)
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function 
+def iter_displacement_DWS( 
+    const unsigned char[:, :] image_b,
+    int[:, :] x,
+    int[:, :] y,
+    double[:, :] dx,
+    double[:, :] dy,
+    int wind_size
+    ):
+    cdef:
+        int i, j, new_x, new_y, wind_id, old_y, old_x, bound_y_right, bound_y_left, bound_x_right, bound_x_left
+        double dxi, dyi
+        int wind_half = wind_size//2
+        unsigned char[:,:,:] moving_window_array = np.empty((x.shape[0]*x.shape[1], wind_size, wind_size), dtype=np.uint8)
+        bint xvalid, yvalid
+    for i in range(x.shape[0]):
+        for j in range(x.shape[1]):
+            wind_id = i*x.shape[1]+j
+            old_x = x[i, j]
+            old_y = y[i, j]
+            # Check boundaries before displacement 
+            bound_x_left = old_x - wind_half
+            bound_x_right = old_x + wind_half
+            bound_y_left = old_y - wind_half
+            bound_y_right = old_y + wind_half
+            if bound_x_left < 0:
+                old_x = old_x - bound_x_left
+            if bound_x_right > image_b.shape[1]:
+                old_x = old_x - (bound_x_right - x.shape[1])
+            if bound_y_left < 0:
+                old_y = old_y - bound_y_left
+            if bound_y_right > image_b.shape[0]:
+                old_y = old_y - (bound_y_right - x.shape[0])
+
+            dxi = dx[i, j]
+            dyi = dy[i, j]
+            new_x = <int>round(old_x + dxi)
+            new_y = <int>round(old_y + dyi)
+            # Check boundaries after displacement 
+            xvalid = (
+                (0 <= (new_x - wind_half)) *
+                (image_b.shape[1] >= (new_x + wind_half))
+            )
+
+            yvalid = (
                 (0 <= (new_y - wind_half)) *
                 (image_b.shape[0] >= (new_y + wind_half))
             )
-            if not valid:
+            if not xvalid:
                 new_x = old_x
+            if not yvalid:
                 new_y = old_y
             moving_window_array[wind_id, :, :] = image_b[(new_y-wind_half):(new_y+wind_half), (new_x-wind_half):(new_x+wind_half)]
     return np.asarray(moving_window_array)
