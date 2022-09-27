@@ -1,6 +1,9 @@
 import logging
 import traceback
+import warnings
+warnings.filterwarnings("ignore")
 import sys
+import gc
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
@@ -8,86 +11,129 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QVBoxLayout,
     QWidget,
-    QMessageBox
+    QMessageBox,
+    QAction,
+    QMenu,
+    QHBoxLayout,
 )
-from PIVwidgets import PIVWidget, ControlsWidget, show_message
+from PIVwidgets import PIVWidget
+from ControlsWidgets import AnalysControlWidget
+from PlotterFunctions import Database, show_message
 from workers import PIVWorker, OnlineWorker
-
-
- 
+gc.disable() 
 
 class MainWindow(QMainWindow):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.piv_widget = PIVWidget()
-        self.controls = ControlsWidget()
+        self.controls = AnalysControlWidget()
+        self.data = Database()
         self.controls.piv_button.clicked.connect(self.start_piv)
         self.controls.pause_button.clicked.connect(self.pause_piv)
-        self.controls.stop_button.clicked.connect(self.stop_piv)
+        self.controls.piv_button.clicked.connect(self.stop_piv)
         self.timer = QTimer()
         self.calc_thread = None
-        self.timer.timeout.connect(self.piv_widget.piv.update_canvas)
+        self.worker = None
+        self.timer.timeout.connect(self.piv_widget.piv_view.set_field)
         self.initUI()
-   
-    def initUI(self):
 
+    def initUI(self):
         layout = QVBoxLayout()
         layout.addWidget(self.piv_widget)
-        layout.addWidget(self.controls)
-
+        h_layout = QHBoxLayout()
+        h_layout.addWidget(self.controls)
+        h_layout.addWidget(self.piv_widget.controls)
+        layout.addLayout(h_layout)
         w = QWidget()
         w.setLayout(layout)
         self.setCentralWidget(w)
+        
+        menuBar = self.menuBar()
+        exitAction = QAction("Exit", self)
+        exitAction.triggered.connect(self.close)
+        fileMenu = menuBar.addMenu("&File")
+        settings = QAction("Analysis Settings", self)
+        settings.triggered.connect(self.controls.show_settings)
+        menuBar.addAction(settings)
+        viewControls = QAction("View Settings", self)
+        viewControls.triggered.connect(self.piv_widget.controls.show_settings)
+        menuBar.addAction(viewControls)
+        folderMenu = QMenu("PIV folder", self)
+        selectFolder = QAction("&New", self)
+        selectFolder.triggered.connect(self.controls.open_dialog)
+        folderMenu.addAction(selectFolder)
+        folderMenu.addAction(QAction(self.controls.settings.state.folder, self))
+        pivfileMenu = QMenu("Open PIV file", self)
+        pivfileAction = QAction("&New", self)
+        pivfileAction.triggered.connect(self.piv_widget.controls.open_dialog)
+        pivfileMenu.addAction(pivfileAction)
+
+        
+        saveMenu = QMenu("&Save", self)
+        saveMenu.addActions([
+            QAction("Save profile", self),
+            QAction("Save colormap", self)
+        ])
+        fileMenu.addMenu(folderMenu)
+        fileMenu.addMenu(pivfileMenu)
+        fileMenu.addMenu(saveMenu)
+        fileMenu.addAction(exitAction)
 
     def exit(self, checked):
         self.controls.close()
         exit()
         
-    def reportOutput(self, output):
-        x, y, u, v = output
-        self.piv_widget.piv.set_coords(x, y)
-        self.piv_widget.piv.set_quiver(u, v)
+    def reportOutput(self, output: dict):
+        self.data.set(output)
+        if not self.piv_widget.controls.initialized:
+            self.piv_widget.controls.set_field_box()
+            self.piv_widget.controls.initialized = True
+            self.piv_widget.piv_view.set_key("Vy[m/s]")
+            self.piv_widget.controls.field_box.setCurrentText("Vy[m/s]")
 
     def reportProgress(self, value):
         self.controls.pbar.setValue(value)
 
-    def reportFinish(self, output):
-        show_message(
-            f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
-            )
-        x, y, u, v = output
-        self.piv_widget.piv.new_image = True
+    def reportFail(self):
+        show_message(f'Dataset is empty')
         self.timer.stop()
-        self.piv_widget.piv.set_coords(x, y)
-        self.piv_widget.piv.set_quiver(u, v)
-        self.piv_widget.piv.draw_stremlines()
-        self.piv_widget.piv.update_canvas()
-        self.piv_widget.piv.restore()
+        self.calc_thread.quit()
+        self.calc_thread.wait()
+        self.worker = None
+        self.controls.piv_button.setText("Start PIV")
+        gc.collect()
 
-
-        
-
+    def reportFinish(self, output: dict):
+        if self.controls.settings.state.save_opt != "Dont save":
+            show_message(
+                f'Averaged data saved in\n{self.controls.settings.state.save_dir}'
+                )
+        self.data.set(output)
+        self.timer.stop()
+        self.piv_widget.controls.set_field_box()
+        self.piv_widget.piv_view.set_field()
+        self.calc_thread.quit()
+        self.calc_thread.wait()
+        self.calc_thread = None
+        self.worker = None
+        self.controls.piv_button.setText("Start PIV")
+        gc.collect()
     
     def pause_piv(self):
         if self.calc_thread is None:
             return
         if self.worker.is_paused:
             text = "Pause"
-            self.piv_widget.piv.restore()
         else:
             text = "Resume"
 
         self.controls.pause_button.setText(text)
         self.worker.is_paused = not self.worker.is_paused
 
-        # if self.worker.is_paused:
-        #     u, v = self.worker.avg_u/self.worker.idx, self.worker.avg_v/self.worker.idx
-        #     self.piv_widget.piv.set_quiver(u, v)
-        #     self.piv_widget.piv.draw_stremlines()
-        #     self.piv_widget.piv.update_canvas()
-    
     def stop_piv(self):
+        if self.controls.piv_button.text() == "Stop PIV":
+            return
         if self.calc_thread is None:
             return
         self.worker.is_running = False
@@ -95,44 +141,46 @@ class MainWindow(QMainWindow):
 
 
     def start_piv(self):
-        self.timer.start(4000)
-        self.piv_widget.piv.restore()
+        if self.controls.piv_button.text() == "Start PIV":
+            return
+    
+        self.piv_widget.controls.initialized = False
+
+        self.timer.start(2000)
         self.controls.settings.state.to_json()
-        self.calc_thread = QThread(parent=None)
+        self.calc_thread = QThread()
         piv_params = self.controls.settings.state
-        if self.controls.regime_box.currentText() == "offline":
-            self.worker = PIVWorker(self.controls.folder_name.toPlainText(),
-                                    piv_params=piv_params)
-        elif self.controls.regime_box.currentText() == "online":
-            self.worker = OnlineWorker(self.controls.folder_name.toPlainText(),
-                                        piv_params=piv_params)
+        if self.controls.settings.regime_box.currentText() == "offline":
+            self.worker = PIVWorker(piv_params=piv_params)
+        elif self.controls.settings.regime_box.currentText() == "online":
+            self.worker = OnlineWorker(piv_params=piv_params)
 
         # self.worker.is_running = True
         # Step 4: Move worker to the thread
         self.worker.moveToThread(self.calc_thread)
         # Step 5: Connect signals and slots
-        self.calc_thread.started.connect(self.worker.run)
-        self.worker.signals.finished.connect(self.calc_thread.quit)
-        self.worker.signals.finished.connect(self.worker.deleteLater)
-        self.calc_thread.finished.connect(self.calc_thread.deleteLater)
-        self.worker.signals.output.connect(self.reportOutput)
-        self.worker.signals.progress.connect(self.reportProgress)
-        self.worker.signals.finished.connect(self.reportFinish)
-        # Step 6: Start the thread
-        self.calc_thread.start()
-
-        # Final resets
         self._disable_buttons()
         self.calc_thread.finished.connect(
             self._enable_buttons
         )
+        self.calc_thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.calc_thread.finished.connect(self.worker.deleteLater)
+        self.calc_thread.finished.connect(self.calc_thread.deleteLater)
+        self.worker.output.connect(self.reportOutput)
+        self.worker.progress.connect(self.reportProgress)
+        self.worker.finished.connect(self.reportFinish)
+        self.worker.failed.connect(self.reportFail)
+        # Step 6: Start the thread
+        self.calc_thread.start()
+
+        # Final resets
+        
     def _disable_buttons(self):
-        self.controls.piv_button.setEnabled(False)
         self.controls.settings.confirm.setEnabled(False)
 
     
     def _enable_buttons(self):
-        self.controls.piv_button.setEnabled(True)
         self.controls.settings.confirm.setEnabled(True)
 
     def message(self, string: str):
@@ -209,4 +257,3 @@ if __name__ == "__main__":
     w = MainWindow()
     w.show()
     sys.exit(app.exec_())
-    
