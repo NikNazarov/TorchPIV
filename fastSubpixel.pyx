@@ -116,6 +116,52 @@ cdef void _replace_nans(double[:,:] vec):
                         vec[k, m] += neighbours[i]
                 vec[k, m] = vec[k, m] / (8 - nan_count)
 
+
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+@cython.wraparound(False)  # turn off negative index wrapping for entire function
+@cython.cdivision(True)
+def replace_nans(double[:,:] vec):
+
+    """ 
+        Raplace NaNs by averaging neighborhood
+        Input params:
+        vec[:,:] double 
+        Returns:
+        vec[:,:] double
+    """
+
+    cdef double neighbours[8]
+    cdef int k, m, n_rows, n_cols, i, nan_count
+    n_rows    = vec.shape[0]
+    n_cols    = vec.shape[1]
+    for k in range(1, n_rows - 1):
+        for m in range(1, n_cols - 1):
+            if not isnan(vec[k, m]):
+                continue
+            
+            neighbours[0] = vec[k, m-1]
+            neighbours[1] = vec[k+1, m-1]
+            neighbours[2] = vec[k-1, m-1]
+            neighbours[3] = vec[k-1, m]
+            neighbours[4] = vec[k+1, m]
+            neighbours[5] = vec[k, m+1]
+            neighbours[6] = vec[k+1, m+1]
+            neighbours[7] = vec[k-1, m+1]
+            nan_count = 0
+            for i in range(8):
+                if isnan(neighbours[i]):
+                    nan_count += 1
+            if nan_count < 3:
+                vec[k, m] = 0
+                for i in range(8):
+                    if not isnan(neighbours[i]): 
+                        vec[k, m] += neighbours[i]
+                vec[k, m] = vec[k, m] / (8 - nan_count)
+    return np.asarray(vec)
+
+
+
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function 
 cdef void _mem_view_sum(

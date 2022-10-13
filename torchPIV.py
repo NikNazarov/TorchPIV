@@ -188,9 +188,55 @@ def interpolate_boarders(vec: np.ndarray) -> np.ndarray:
     
     return vec
 
+def correlation_to_displacement(
+    corr: torch.Tensor,
+    n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray, np.ndarray]:
+    c, d, k = corr.shape
+    cor = corr.view(c, -1)
+    m = corr.view(c, -1).argmax(-1, keepdim=True)
+    # m = torch.cat((m // d, m % k), -1)
+    left = m + 1
+    right = m - 1
+    top = m + k 
+    bot = m - k
+    left[left >= k*d] = m[left >= k*d]
+    right[right < 0] = m[right < 0]
+    top[top >= k*d] = m[top >= k*d]
+    bot[bot < 0] = m[bot < 0]
+
+    cm = torch.gather(cor, -1, m)
+    cl = torch.gather(cor, -1, left)
+    cr = torch.gather(cor, -1, right)
+    ct = torch.gather(cor, -1, top)
+    cb = torch.gather(cor, -1, bot)
+    nom1 = torch.log(cr) - torch.log(cl) 
+    den1 = 2 * (torch.log(cl) + torch.log(cr)) - 4 * torch.log(cm) 
+    nom2 = torch.log(cb) - torch.log(ct) 
+    den2 = 2 * (torch.log(cb) + torch.log(ct)) - 4 * torch.log(cm) 
+    m = torch.cat((m // d, m % k), -1)
+    v = m[:, 0][:, None] + nom2/den2
+    u = m[:, 1][:, None] + nom1/den1
+    v[(left > k*d) * (right < 0) * (top > k*d) * (bot < 0)] = torch.nan
+    u[(left > k*d) * (right < 0) * (top > k*d) * (bot < 0)] = torch.nan
+    u = u.reshape(n_rows, n_cols).cpu().numpy()
+    v = v.reshape(n_rows, n_cols).cpu().numpy()
+    
+    for _ in range(3):
+        u = fastSubpixel.replace_nans(u.astype(np.float64)) 
+        v = fastSubpixel.replace_nans(v.astype(np.float64)) 
+    default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
+    v = v - default_peak_position[0]
+    u = u - default_peak_position[1] 
+    u = interpolate_boarders(u)
+    v = interpolate_boarders(v)
+    if interp_nan:
+        u = interpolate_nan(u)
+        v = interpolate_nan(v)
+    return u, v
+
 def c_correlation_to_displacement(
     corr: torch.Tensor, 
-    n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray]:
+    n_rows, n_cols, interp_nan=False) -> Tuple[np.ndarray]:
     """
     Correlation maps are converted to displacement for each interrogation
     window using the convention that the size of the correlation map
@@ -311,7 +357,7 @@ def extended_search_area_piv(
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
     corr = correalte_fft(aa, bb)
-    u, v = c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=False)
+    u, v = correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True)
     return u, v, x, y
 
 def get_coordinates(image_size, search_area_size, overlap):
@@ -432,7 +478,7 @@ def piv_iteration_CWS(
 
     corr = correalte_fft(aa, bb)
 
-    du, dv = c_correlation_to_displacement(corr.squeeze(), n_rows, n_cols, interp_nan=True)
+    du, dv = correlation_to_displacement(corr.squeeze(), n_rows, n_cols, interp_nan=True)
 
     v = v0 + dv
     u = u0 + du
@@ -475,7 +521,7 @@ def piv_iteration_DWS(
 
     aa2, bb2 = aa2.to(device), bb2.to(device)
     corr = correalte_fft(aa2, bb2)
-    du, dv = c_correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True)
+    du, dv = correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True)
 
     v = 2*np.rint(vin) + dv
     u = 2*np.rint(uin) + du
