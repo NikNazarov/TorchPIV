@@ -192,17 +192,17 @@ def correlation_to_displacement(
     corr: torch.Tensor,
     n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray, np.ndarray]:
     c, d, k = corr.shape
-    cor = corr.view(c, -1)
+    cor = corr.view(c, -1).type(torch.float64)
     m = corr.view(c, -1).argmax(-1, keepdim=True)
     # m = torch.cat((m // d, m % k), -1)
     left = m + 1
     right = m - 1
     top = m + k 
     bot = m - k
-    left[left >= k*d] = m[left >= k*d]
-    right[right < 0] = m[right < 0]
-    top[top >= k*d] = m[top >= k*d]
-    bot[bot < 0] = m[bot < 0]
+    left[left >= k*d - 1] = m[left >= k*d - 1]
+    right[right <= 0] = m[right <= 0]
+    top[top >= k*d - 1] = m[top >= k*d - 1]
+    bot[bot <= 0] = m[bot <= 0]
 
     cm = torch.gather(cor, -1, m)
     cl = torch.gather(cor, -1, left)
@@ -216,22 +216,19 @@ def correlation_to_displacement(
     m = torch.cat((m // d, m % k), -1)
     v = m[:, 0][:, None] + nom2/den2
     u = m[:, 1][:, None] + nom1/den1
-    v[(left > k*d) * (right < 0) * (top > k*d) * (bot < 0)] = torch.nan
-    u[(left > k*d) * (right < 0) * (top > k*d) * (bot < 0)] = torch.nan
+    v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
+    u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
     u = u.reshape(n_rows, n_cols).cpu().numpy()
     v = v.reshape(n_rows, n_cols).cpu().numpy()
-    
-    for _ in range(3):
-        u = fastSubpixel.replace_nans(u.astype(np.float64)) 
-        v = fastSubpixel.replace_nans(v.astype(np.float64)) 
+     
     default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
     v = v - default_peak_position[0]
     u = u - default_peak_position[1] 
     u = interpolate_boarders(u)
     v = interpolate_boarders(v)
     if interp_nan:
-        u = interpolate_nan(u)
-        v = interpolate_nan(v)
+        u = fastSubpixel.replace_nans(u) 
+        v = fastSubpixel.replace_nans(v) 
     return u, v
 
 def c_correlation_to_displacement(
