@@ -132,32 +132,39 @@ def replace_nans(double[:,:] vec):
     """
 
     cdef double neighbours[8]
-    cdef int k, m, n_rows, n_cols, i, nan_count
+    cdef double* weights = [1., 0.7071, 0.7071, 1., 1., 1., 0.7071, 0.7071]
+    cdef int k, m, n_rows, n_cols, i, nan_count, whole_nans, iterations
     n_rows    = vec.shape[0]
     n_cols    = vec.shape[1]
-    for k in range(1, n_rows - 1):
-        for m in range(1, n_cols - 1):
-            if not isnan(vec[k, m]):
-                continue
-            
-            neighbours[0] = vec[k, m-1]
-            neighbours[1] = vec[k+1, m-1]
-            neighbours[2] = vec[k-1, m-1]
-            neighbours[3] = vec[k-1, m]
-            neighbours[4] = vec[k+1, m]
-            neighbours[5] = vec[k, m+1]
-            neighbours[6] = vec[k+1, m+1]
-            neighbours[7] = vec[k-1, m+1]
-            nan_count = 0
-            for i in range(8):
-                if isnan(neighbours[i]):
-                    nan_count += 1
-            if nan_count < 3:
-                vec[k, m] = 0
+    iterations = 0
+    while True:
+        whole_nans = 0
+        for k in range(1, n_rows - 1):
+            for m in range(1, n_cols - 1):
+                if not isnan(vec[k, m]):
+                    continue
+                whole_nans += 1
+                neighbours[0] = vec[k, m-1]
+                neighbours[1] = vec[k+1, m-1]
+                neighbours[2] = vec[k-1, m-1]
+                neighbours[3] = vec[k-1, m]
+                neighbours[4] = vec[k+1, m]
+                neighbours[5] = vec[k, m+1]
+                neighbours[6] = vec[k+1, m+1]
+                neighbours[7] = vec[k-1, m+1]
+                nan_count = 0
                 for i in range(8):
-                    if not isnan(neighbours[i]): 
-                        vec[k, m] += neighbours[i]
-                vec[k, m] = vec[k, m] / (8 - nan_count)
+                    if isnan(neighbours[i]):
+                        nan_count += 1
+                if nan_count < 3:
+                    vec[k, m] = 0.
+                    for i in range(8):
+                        if not isnan(neighbours[i]): 
+                            vec[k, m] += neighbours[i] * weights[i]
+                    vec[k, m] = vec[k, m] / (8 - nan_count)
+        iterations += 1
+        if whole_nans == 0 or iterations > 100:
+            break
     return np.asarray(vec)
 
 
