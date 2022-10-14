@@ -1,28 +1,30 @@
-# Программа для анализа PIV данных
-В данной программе реализованы основные алгоритмы метода PIV, такие как итерационный кросс-корреляционный метод на основе FFT с целым и непрерывным смещением областей  __(DWS, CWS)__  , фильтрация и интерполяция эффекта потери праы и тд. На данном этапе доступен __графический интерфейс__, возможность выбора гиперпараметров PIV. Ключевой особенностью проекта является использование графических ускорителей за счет библиотеки __torch__.
+# PyTorch accelerated Particle Image Velocimetry
+This program implements the basic algorithms of the PIV method, such as an iterative cross-correlation method based on FFT with an integer and continuous displacement __(DWS, CWS)__ of the interrogation windows, filtering and interpolation of the pair loss effect, and so on. At this stage, the __graphical interface__ is available, the ability to select PIV hyperparameters. The key feature of the project is the use of graphics accelerators due to the __torch__ library. PIV algorithm __almost__ completely vectorized, what results in a very high performance using the GPU.
 
-__Параметры программы:__
-1. Размер окна поиска 
-2. Размер перекрытия окон
-3. Масштаб координат
-4. Время между кадрами
-5. Выбор устройства для расчета (ЦПУ или ГПУ)
-6. Выбор итерационного метода DWS, CWS
-7. Количество итераций алгоритма
-8. Параметры окна поиска во время итераций
-9. Выбор поддерживаемых форматов изображений (bmp, jpg, tiff, ect.)
-10. Выбор опций для сохранения результатов программы
+__Parameters of the program:__
+1. Interrogation window size
+2. Window overlap size
+3. Coordinate scale
+4. Time between frames
+5. Selection of the calculation device (CPU or any of your GPUs)
+6. Iteration method: DWS or CWS
+7. The number of iterations of the algorithm
+8. Interrogation window scale during iterations
+9. Supported image formats (bmp, jpg, tiff, ect.)
+10. Options for saving program results
 
 __Installation:__    
 It is easier to use conda environment.
-1. Install nvidia CUDA Toolkit https://developer.nvidia.com/cuda-toolkit
-2. Install pytorch with GPU support https://pytorch.org/ . Try to match your cuda version but it is not critical 
+1. Install nvidia CUDA Toolkit https://developer.nvidia.com/cuda-toolkit to ensure latest nvidia driver usage
+2. Install pytorch with GPU support https://pytorch.org/ . Matching your CUDA version is not critical since PyTorch installs it's own cudatoolkit.  
 3. In your environment or command line <code>pip install -r /path/to/requirements.txt </code>
 If you facing some troubles try to <code>pip install "module"</code> manually for each line
-4. Compile cython code with <code>python setup.py build_ext --inplace </code>
+4. Compile cython code with <code>python setup.py build_ext --inplace </code>. Cython compiler may throw an error because it needs Visual Studio Build Tools for this code. The compiler will provide a link to the Build Tools download page.
 
-__Скорость алгоритма__:  
-Данный алгоритм позволяет обработать 4 тыс. пар изображений размером 4 Мп с окном поиска 64, перекрытием 50%, двумя итерациями с переразбиением (увеличение количества векторов в 4 раза) менее чем за 1 час. Первая итерация алгоритма (без интерполированных векторов) занимает 60 мс на ГПУ Geforce GTX 1050.
+Tested on Windows
 
-__Дальнейшие планы работы__:  
-Создание версии программы для обработки данных во время их записи. Возможность обработки данных стерео PIV.
+__Performance__:  
+This method allows processing 4 thousand pairs of images with a size of 4 MP each with a search window of 64, overlap of 50%, two iterations with re-arranging (an increase in the number of vectors by 4 times) in less than 10 minutes. The first iteration of the algorithm (~[4000, 64, 64] subimage tensor) takes ~15 ms on a Geforce GTX 1660 Ti GPU.
+
+__Futhure plans__:
+Creating a version of the program for processing data during their recording. The ability to process stereo PIV data.
