@@ -226,8 +226,8 @@ def iter_displacement_CWS(
 
             dxi = dx[i, j]
             dyi = dy[i, j]
-            new_x = <int>floor(old_x + dxi)
-            new_y = <int>floor(old_y + dyi)
+            new_x = <int>round(old_x + dxi)
+            new_y = <int>round(old_y + dyi)
             rdx = (old_x + dxi) % 1
             rdy = (old_y + dyi) % 1
             # Check boundaries after displacement 
