@@ -101,7 +101,7 @@ def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tens
         array, size=shape, stride=strides 
     ).reshape(-1, window_size, window_size)
 
-def correalte_fft(images_a, images_b) -> torch.Tensor:
+def correalte_fft(images_a: torch.Tensor, images_b: torch.Tensor) -> torch.Tensor:
     """
     Compute cross correlation based on fft method
     Between two torch.Tensors of shape [c, width, height]
@@ -192,9 +192,11 @@ def correlation_to_displacement(
     corr: torch.Tensor,
     n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray, np.ndarray]:
     c, d, k = corr.shape
+    eps = 1e-7
+    corr += eps
     cor = corr.view(c, -1).type(torch.float64)
     m = corr.view(c, -1).argmax(-1, keepdim=True)
-    # m = torch.cat((m // d, m % k), -1)
+
     left = m + 1
     right = m - 1
     top = m + k 
@@ -240,7 +242,7 @@ def c_correlation_to_displacement(
     is 2N -1 where N is the size of the largest interrogation window
     (in frame B) that is called search_area_size
     Inputs:
-        corr : 4D torch.Tesnsor [batch, channels, :, :]
+        corr : 3D torch.Tesnsor [channels, :, :]
             contains output of the fft_correlate_images
         n_rows, n_cols : number of interrogation windows, output of the
             get_field_shape
@@ -572,7 +574,7 @@ class OfflinePIV:
     def __call__(self) -> Generator:
         loader = torch.utils.data.DataLoader(self._dataset, 
             batch_size=None, num_workers=0, pin_memory=True)
-        spline = None
+
         end_time = time() 
         for a, b in loader:
              with torch.no_grad():
