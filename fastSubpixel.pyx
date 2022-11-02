@@ -133,6 +133,7 @@ def replace_nans(double[:,:] vec):
 
     cdef double neighbours[8]
     cdef double* weights = [1., 0.7071, 0.7071, 1., 1., 1., 0.7071, 0.7071]
+    cdef double weight
     cdef int k, m, n_rows, n_cols, i, nan_count, whole_nans, iterations
     n_rows    = vec.shape[0]
     n_cols    = vec.shape[1]
@@ -158,10 +159,13 @@ def replace_nans(double[:,:] vec):
                         nan_count += 1
                 if nan_count < 3:
                     vec[k, m] = 0.
+                    weight = 0.
                     for i in range(8):
                         if not isnan(neighbours[i]): 
                             vec[k, m] += neighbours[i] * weights[i]
-                    vec[k, m] = vec[k, m] / (8 - nan_count)
+                            weight += weights[i]
+                    if (weight + 1e-3) > 0:  
+                        vec[k, m] = vec[k, m] / weight
         iterations += 1
         if whole_nans == 0 or iterations > 100:
             break
