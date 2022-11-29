@@ -370,6 +370,7 @@ def extended_search_area_piv(
     """
 
     frame_a, frame_b = frame_a.to(device), frame_b.to(device)
+
     if overlap >= window_size:
         raise ValueError("Overlap has to be smaller than the window_size")
 
@@ -379,7 +380,13 @@ def extended_search_area_piv(
     x, y = get_coordinates(frame_a.shape, window_size, overlap)
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
+    # Normalize Intesity
+    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
+    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+    
     corr = correalte_fft(aa, bb)
+    # Normalize correlation
+    corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
     u, v = correlation_to_displacement(corr, n_rows, n_cols)
     return u, v, x, y
 
@@ -498,9 +505,12 @@ def piv_iteration_CWS(
     grid = F.affine_grid(affine_transform, bb.size())
     bb = F.grid_sample(bb, grid, mode='bilinear',padding_mode="border")
 
-
+    # Normalize Intesity
+    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
+    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+    
     corr = correalte_fft(aa, bb)
-
+    corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
     du, dv = correlation_to_displacement(corr.squeeze(), n_rows, n_cols)
 
     v = v0 + dv
@@ -540,11 +550,17 @@ def piv_iteration_DWS(
 
     vin = v0/2
     uin = u0/2
-    bb2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x.astype(np.int32), y.astype(np.int32), uin,  vin, wind_size))
-    aa2 = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x.astype(np.int32), y.astype(np.int32), -uin, -vin, wind_size))
+    bb = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x.astype(np.int32), y.astype(np.int32), uin,  vin, wind_size))
+    aa = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x.astype(np.int32), y.astype(np.int32), -uin, -vin, wind_size))
 
-    aa2, bb2 = aa2.to(device), bb2.to(device)
-    corr = correalte_fft(aa2, bb2)
+    aa, bb = aa.to(device), bb.to(device)
+    # Normalize Intesity
+    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
+    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+
+    corr = correalte_fft(aa, bb)
+    corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
+
     du, dv = correlation_to_displacement(corr, n_rows, n_cols)
 
     v = 2*np.rint(vin) + dv
