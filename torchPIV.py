@@ -188,9 +188,26 @@ def interpolate_boarders(vec: np.ndarray) -> np.ndarray:
     
     return vec
 
+def peak2peak_secondpeak(
+    corr: torch.Tensor, imax: torch.Tensor, 
+    wind: int=2) -> torch.Tensor:
+    c, d, k = corr.shape
+    cor = corr.view(c, -1)
+    for i in range(-wind, wind+1):
+        for j in range(-wind, wind+1):
+            ids = imax + i + k * j
+            ids[ids < 0] = 0
+            ids[ids > k*d-1] = k*d - 1
+            cor.scatter_(-1, ids, 0.0)
+    second_max = cor.argmax(-1, keepdim=True)
+    return second_max
+
 def correlation_to_displacement(
     corr: torch.Tensor,
-    n_rows, n_cols, interp_nan=True) -> Tuple[np.ndarray, np.ndarray]:
+    n_rows, n_cols,
+    validate: bool=False,
+    val_ratio=1.1, 
+    validation_window=3) -> Tuple[np.ndarray, np.ndarray]:
     c, d, k = corr.shape
     eps = 1e-7
     corr += eps
@@ -215,11 +232,22 @@ def correlation_to_displacement(
     den1 = 2 * (torch.log(cl) + torch.log(cr)) - 4 * torch.log(cm) 
     nom2 = torch.log(cb) - torch.log(ct) 
     den2 = 2 * (torch.log(cb) + torch.log(ct)) - 4 * torch.log(cm) 
-    m = torch.cat((m // d, m % k), -1)
-    v = m[:, 0][:, None] + nom2/den2
-    u = m[:, 1][:, None] + nom1/den1
+
+
+
+
+
+    m2d = torch.cat((m // d, m % k), -1)
+    v = m2d[:, 0][:, None] + nom2/den2
+    u = m2d[:, 1][:, None] + nom1/den1
     v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
     u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
+    if validate:
+        m2 = peak2peak_secondpeak(corr, m, validation_window)
+        validation_mask = (cm / torch.gather(cor, -1, m2)) < val_ratio
+        u[validation_mask] = torch.nan
+        v[validation_mask] = torch.nan
+
     u = u.reshape(n_rows, n_cols).cpu().numpy()
     v = v.reshape(n_rows, n_cols).cpu().numpy()
      
@@ -228,9 +256,8 @@ def correlation_to_displacement(
     u = u - default_peak_position[1] 
     u = interpolate_boarders(u)
     v = interpolate_boarders(v)
-    if interp_nan:
-        u = fastSubpixel.replace_nans(u) 
-        v = fastSubpixel.replace_nans(v) 
+    u = fastSubpixel.replace_nans(u) 
+    v = fastSubpixel.replace_nans(v) 
     return u, v
 
 def c_correlation_to_displacement(
@@ -340,9 +367,6 @@ def extended_search_area_piv(
         the number of pixels by which two adjacent windows overlap
         [default: 16 pix].
 
-    dt : float
-        the time delay separating the two frames [default: 1.0].
-
     """
 
     frame_a, frame_b = frame_a.to(device), frame_b.to(device)
@@ -356,7 +380,7 @@ def extended_search_area_piv(
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
     corr = correalte_fft(aa, bb)
-    u, v = correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True)
+    u, v = correlation_to_displacement(corr, n_rows, n_cols)
     return u, v, x, y
 
 def get_coordinates(image_size, search_area_size, overlap):
@@ -477,7 +501,7 @@ def piv_iteration_CWS(
 
     corr = correalte_fft(aa, bb)
 
-    du, dv = correlation_to_displacement(corr.squeeze(), n_rows, n_cols, interp_nan=True)
+    du, dv = correlation_to_displacement(corr.squeeze(), n_rows, n_cols)
 
     v = v0 + dv
     u = u0 + du
@@ -508,6 +532,7 @@ def piv_iteration_DWS(
     frame_b = frame_b.numpy()
     n_rows, n_cols = get_field_shape(frame_a.shape, wind_size, overlap)
     x, y = get_coordinates(frame_a.shape, wind_size, overlap)
+
     spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
     spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
     u0 = spline_u(y[:,0], x[0,:])
@@ -520,7 +545,7 @@ def piv_iteration_DWS(
 
     aa2, bb2 = aa2.to(device), bb2.to(device)
     corr = correalte_fft(aa2, bb2)
-    du, dv = correlation_to_displacement(corr, n_rows, n_cols, interp_nan=True)
+    du, dv = correlation_to_displacement(corr, n_rows, n_cols)
 
     v = 2*np.rint(vin) + dv
     u = 2*np.rint(uin) + du

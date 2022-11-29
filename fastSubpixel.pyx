@@ -299,8 +299,12 @@ def iter_displacement_DWS(
 
             dxi = dx[i, j]
             dyi = dy[i, j]
-            new_x = <int>round(old_x + dxi)
-            new_y = <int>round(old_y + dyi)
+            if isnan(dxi) or isnan(dyi):
+                new_x = old_x
+                new_y = old_y
+            else:
+                new_x = <int>round(old_x + dxi)
+                new_y = <int>round(old_y + dyi)
             # Check boundaries after displacement 
             xvalid = (
                 (0 <= (new_x - wind_half)) *
