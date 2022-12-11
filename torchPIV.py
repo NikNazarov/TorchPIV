@@ -54,6 +54,7 @@ class PIVDataset(Dataset):
             in os.listdir(folder) if name.endswith(file_fmt)]
         filenames.sort(key=natural_keys)
         self.img_pairs = list(zip(filenames[::2], filenames[1::2]))
+        # self.img_pairs = list(zip(filenames[:-1], filenames[1:]))
     def __len__(self):
         return len(self.img_pairs)
     
@@ -205,9 +206,10 @@ def peak2peak_secondpeak(
 def correlation_to_displacement(
     corr: torch.Tensor,
     n_rows, n_cols,
-    validate: bool=False,
-    val_ratio=1.1, 
-    validation_window=3) -> Tuple[np.ndarray, np.ndarray]:
+    validate: bool=True,
+    val_ratio=1.2, 
+    validation_window=3) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    validation_mask = None
     c, d, k = corr.shape
     eps = 1e-7
     corr += eps
@@ -240,13 +242,17 @@ def correlation_to_displacement(
     m2d = torch.cat((m // d, m % k), -1)
     v = m2d[:, 0][:, None] + nom2/den2
     u = m2d[:, 1][:, None] + nom1/den1
-    v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
-    u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
+    # v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
+    # u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
     if validate:
+        # v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
+        # u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
         m2 = peak2peak_secondpeak(corr, m, validation_window)
         validation_mask = (cm / torch.gather(cor, -1, m2)) < val_ratio
-        u[validation_mask] = torch.nan
-        v[validation_mask] = torch.nan
+        validation_mask[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = True
+        validation_mask = validation_mask.reshape(n_rows, n_cols).cpu().numpy()
+        # u[validation_mask] = torch.nan
+        # v[validation_mask] = torch.nan
 
     u = u.reshape(n_rows, n_cols).cpu().numpy()
     v = v.reshape(n_rows, n_cols).cpu().numpy()
@@ -258,7 +264,9 @@ def correlation_to_displacement(
     v = interpolate_boarders(v)
     u = fastSubpixel.replace_nans(u) 
     v = fastSubpixel.replace_nans(v) 
-    return u, v
+    u = interpolate_nan(u)
+    v = interpolate_nan(v)
+    return u, v, validation_mask
 
 def c_correlation_to_displacement(
     corr: torch.Tensor, 
@@ -287,11 +295,11 @@ def c_correlation_to_displacement(
     peak = (np.array(temp).T - default_peak_position.T).T
     u, v = peak[0], peak[1]
     u, v = u.squeeze(), v.squeeze()
-    u = interpolate_boarders(u)
-    v = interpolate_boarders(v)
-    if interp_nan:
-        u = interpolate_nan(u)
-        v = interpolate_nan(v)
+    # u = interpolate_boarders(u)
+    # v = interpolate_boarders(v)
+    # if interp_nan:
+    #     u = interpolate_nan(u)
+    #     v = interpolate_nan(v)
     return u, v
 
 
@@ -339,8 +347,10 @@ def extended_search_area_piv(
     frame_b,
     window_size,
     overlap=0,
+    validate: bool = True,
+    validation_ratio:float = 1.2,
     device: torch.device=torch.device("cpu")
-) -> Tuple[np.ndarray]:
+) -> Tuple[np.ndarray, ...]:
     """Standard PIV cross-correlation algorithm, with an option for
     extended area search that increased dynamic range. The search region
     in the second frame is larger than the interrogation window size in the
@@ -381,14 +391,14 @@ def extended_search_area_piv(
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
     # Normalize Intesity
-    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
-    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+    # aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
+    # bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
     
     corr = correalte_fft(aa, bb)
     # Normalize correlation
     corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
-    u, v = correlation_to_displacement(corr, n_rows, n_cols)
-    return u, v, x, y
+    u, v, validation_mask = correlation_to_displacement(corr, n_rows, n_cols, validate, val_ratio=validation_ratio)
+    return u, v, x, y, validation_mask
 
 def get_coordinates(image_size, search_area_size, overlap):
     """Compute the x, y coordinates of the centers of the interrogation windows.
@@ -474,9 +484,10 @@ def piv_iteration_CWS(
     y0: np.ndarray,  
     u0: np.ndarray,  
     v0: np.ndarray,
+    validation_mask: np.ndarray,
     wind_size: int, 
     overlap: int,
-    device: torch.device) -> torch.Tensor:
+    device: torch.device) -> tuple[np.ndarray, ...]:
 
     iter_proc = time()
     n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=wind_size, overlap=overlap)
@@ -485,7 +496,11 @@ def piv_iteration_CWS(
     spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
     u0 = spline_u(y[:,0], x[0,:])
     v0 = spline_v(y[:,0], x[0,:])
-
+    if validation_mask is not None:
+        spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
+        val = spline_val(y[:,0], x[0,:]) >= .5
+        u0[val] = 0.0
+        v0[val] = 0.0
     uflat = u0.flatten()
     vflat = v0.flatten()
     frame_a, frame_b = frame_a.to(device), frame_b.to(device)
@@ -511,17 +526,21 @@ def piv_iteration_CWS(
     
     corr = correalte_fft(aa, bb)
     corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
-    du, dv = correlation_to_displacement(corr.squeeze(), n_rows, n_cols)
+    du, dv, val = correlation_to_displacement(corr.squeeze(), n_rows, n_cols)
 
     v = v0 + dv
     u = u0 + du
 
     mask_u = (du > u0) * (np.rint(u0) > 0)
     mask_v = (dv > v0) * (np.rint(v0) > 0)
+    if val is not None:
+        mask_u[val] = True
+        mask_v[val] = True
+
     v[mask_v] = v0[mask_v]
     u[mask_u] = u0[mask_u]
     print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
-    return u, v, x, y
+    return u, v, x, y, val
 
 
 
@@ -532,10 +551,11 @@ def piv_iteration_DWS(
     x0:       np.ndarray, 
     y0:       np.ndarray, 
     u0:      np.ndarray, 
-    v0:      np.ndarray, 
+    v0:      np.ndarray,
+    validation_mask: np.ndarray, 
     wind_size: int,
     overlap: int, 
-    device: torch.device)->Tuple[np.ndarray, np.ndarray]:
+    device: torch.device)->tuple[np.ndarray, ...]:
 
     iter_proc = time()
     frame_a = frame_a.numpy()
@@ -545,33 +565,44 @@ def piv_iteration_DWS(
 
     spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
     spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
+
     u0 = spline_u(y[:,0], x[0,:])
     v0 = spline_v(y[:,0], x[0,:])
 
+
     vin = v0/2
     uin = u0/2
+    if validation_mask is not None:
+        spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
+        val = spline_val(y[:,0], x[0,:]) >= .5
+        vin[val] = 0.0
+        uin[val] = 0.0
     bb = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x.astype(np.int32), y.astype(np.int32), uin,  vin, wind_size))
     aa = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x.astype(np.int32), y.astype(np.int32), -uin, -vin, wind_size))
 
     aa, bb = aa.to(device), bb.to(device)
     # Normalize Intesity
-    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
-    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+    # aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
+    # bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
 
     corr = correalte_fft(aa, bb)
     corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
 
-    du, dv = correlation_to_displacement(corr, n_rows, n_cols)
+    du, dv, val = correlation_to_displacement(corr, n_rows, n_cols)
 
     v = 2*np.rint(vin) + dv
     u = 2*np.rint(uin) + du
 
     mask_u = (du > u0) * (np.rint(u0) > 0)
     mask_v = (dv > v0) * (np.rint(v0) > 0)
+    if val is not None:
+        mask_u[val] = True
+        mask_v[val] = True
+
     v[mask_v] = v0[mask_v]
     u[mask_u] = u0[mask_u]
     print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
-    return u, v, x, y
+    return u, v, x, y, val
 
 class IterModMap:
     functions = {
@@ -622,7 +653,7 @@ class OfflinePIV:
 
                 print(f"Load time {(time() - end_time):.3f} sec", end=' ')
                 start = time()
-                u, v, x, y = extended_search_area_piv(a, b, window_size=self._wind_size, 
+                u, v, x, y, val = extended_search_area_piv(a, b, window_size=self._wind_size, 
                                                 overlap=self._overlap, device=self._device)
                 
 
@@ -632,11 +663,21 @@ class OfflinePIV:
                 for _ in range(self._iter-1):
                     wind_size = int(wind_size//self._iter_scale)
                     overlap = int(overlap//self._iter_scale)                    
-                    u, v, x, y = self._iter_function(a, b, x, y, u, v, wind_size, overlap, self._device)
+                    u, v, x, y, val = self._iter_function(a, b, x, y, u, v, val, wind_size, overlap, self._device)
 
+                if val is not None:
+                    u[val] = np.nan
+                    v[val] = np.nan
+                    # u = interpolate_boarders(u)
+                    # v = interpolate_boarders(v)
+                    # u = fastSubpixel.replace_nans(u) 
+                    # v = fastSubpixel.replace_nans(v) 
+                    u = interpolate_nan(u)
+                    v = interpolate_nan(v)
 
                 u =  np.flip(u, axis=0)
                 v = -np.flip(v, axis=0)
+
                 yield x, y, u, v
                 end_time = time()
                 print(f"Batch finished in {(end_time - start):.3f} sec")
