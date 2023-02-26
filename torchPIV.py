@@ -73,6 +73,55 @@ class PIVDataset(Dataset):
         
         return img_a, img_b
 
+
+def biliniar_interpolation_CWS(array: torch.Tensor, grid:torch.Tensor, 
+                                vel_x: torch.Tensor, vel_y: torch.Tensor) -> torch.Tensor:
+    
+    frame_shape = array.shape
+    grid_y, grid_x = grid // frame_shape[-1], grid % frame_shape[-1] 
+    new_y, new_x = grid_y + vel_y, grid_x + vel_x
+
+    up_x = torch.ceil(new_x).type(torch.int64)
+    up_y = torch.ceil(new_y).type(torch.int64)
+    down_x = torch.floor(new_x).type(torch.int64)
+    down_y = torch.floor(new_y).type(torch.int64)
+    mask = (up_x - down_x)*(up_y - down_y) == 0
+
+    Q12 = up_y   * frame_shape[-1] + down_x
+    Q11 = down_y * frame_shape[-1] + down_x
+    Q22 = up_y   * frame_shape[-1] + up_x
+    Q21 = down_y * frame_shape[-1] + up_x
+
+    Q11 = torch.clamp(Q11, 0, array.numel()-1)
+    Q21 = torch.clamp(Q21, 0, array.numel()-1)
+    Q12 = torch.clamp(Q12, 0, array.numel()-1)
+    Q22 = torch.clamp(Q22, 0, array.numel()-1)
+
+
+    f_Q11 = torch.gather(array.view(-1), -1, Q11.view(-1)).reshape(grid.shape)
+    f_Q12 = torch.gather(array.view(-1), -1, Q12.view(-1)).reshape(grid.shape)
+    f_Q21 = torch.gather(array.view(-1), -1, Q21.view(-1)).reshape(grid.shape)
+    f_Q22 = torch.gather(array.view(-1), -1, Q22.view(-1)).reshape(grid.shape)
+    f_new = (
+        f_Q11 * (up_x - new_x)   * (up_y - new_y)   + 
+        f_Q21 * (new_x - down_x) * (up_y - new_y)   +
+        f_Q12 * (up_x - new_x)   * (new_y - down_y) + 
+        f_Q22 * (new_x - down_x) * (new_y - down_y)
+    )
+    f_new[mask] = f_Q11[mask].type(torch.float32)
+    return f_new
+
+
+def interpolation_DWS(array: torch.Tensor, grid:torch.Tensor, 
+                    vel_x: torch.Tensor, vel_y: torch.Tensor) -> torch.Tensor:
+    frame_shape = array.shape
+    new_grid = grid + vel_y*frame_shape[-1] + vel_x
+    new_grid = torch.clamp(new_grid, 0, array.numel()-1)
+    f_new = torch.gather(array.view(-1), -1, new_grid.view(-1)).reshape(grid.shape)
+    return f_new
+    
+
+
 def moving_window_array(array: torch.Tensor, window_size, overlap) -> torch.Tensor:
     """
     This is a nice numpy and torch trick. The concept of numpy strides should be
@@ -236,23 +285,15 @@ def correlation_to_displacement(
     den2 = 2 * (torch.log(cb) + torch.log(ct)) - 4 * torch.log(cm) 
 
 
-
-
-
     m2d = torch.cat((m // d, m % k), -1)
     v = m2d[:, 0][:, None] + nom2/den2
     u = m2d[:, 1][:, None] + nom1/den1
-    # v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
-    # u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
+
     if validate:
-        # v[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
-        # u[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = torch.nan
         m2 = peak2peak_secondpeak(corr, m, validation_window)
         validation_mask = (cm / torch.gather(cor, -1, m2)) < val_ratio
         validation_mask[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = True
         validation_mask = validation_mask.reshape(n_rows, n_cols).cpu().numpy()
-        # u[validation_mask] = torch.nan
-        # v[validation_mask] = torch.nan
 
     u = u.reshape(n_rows, n_cols).cpu().numpy()
     v = v.reshape(n_rows, n_cols).cpu().numpy()
@@ -345,9 +386,9 @@ def resize_iteration(arr: np.ndarray, shape: tuple=None):
 def extended_search_area_piv(
     frame_a,
     frame_b,
-    window_size,
+    window_size=32,
     overlap=0,
-    validate: bool = True,
+    validate: bool = False,
     validation_ratio:float = 1.2,
     device: torch.device=torch.device("cpu")
 ) -> Tuple[np.ndarray, ...]:
@@ -375,7 +416,7 @@ def extended_search_area_piv(
 
     overlap : int
         the number of pixels by which two adjacent windows overlap
-        [default: 16 pix].
+        [default: 0 pix].
 
     """
 
@@ -477,7 +518,23 @@ def get_coordinates(image_size, search_area_size, overlap):
 
     return np.meshgrid(x, y)
 
-def piv_iteration_CWS(
+class piv_iteration_CWS_Fast:
+    def __init__(self, frame_shape, wind_size, overlap, device) -> None:
+        self.n_rows, self.n_cols = get_field_shape(frame_shape, search_area_size=wind_size, overlap=overlap)
+        
+        self.x, self.y = get_coordinates(frame_shape, wind_size, overlap)
+        self.slice_x, self.slice_y = self.x[0,:], self.y[:,0]
+        
+        self.idx = moving_window_array(
+            torch.arange(0, frame_shape[-2]*frame_shape[-1], dtype=torch.int64, device=device).reshape(frame_shape), 
+            wind_size, overlap
+            )
+        
+        affine_transform = torch.tensor([[1., 0., 0.],
+                                        [0., 1., 0.]]).to(device)
+        self.affine_transform = affine_transform.repeat(self.n_rows * self.n_cols, 1, 1)
+
+    def __call__(self,
     frame_a: torch.Tensor,
     frame_b: torch.Tensor, 
     x0: np.ndarray,  
@@ -488,64 +545,144 @@ def piv_iteration_CWS(
     wind_size: int, 
     overlap: int,
     device: torch.device) -> tuple[np.ndarray, ...]:
-
-    iter_proc = time()
-    n_rows, n_cols = get_field_shape(frame_a.shape, search_area_size=wind_size, overlap=overlap)
-    x, y = get_coordinates(frame_a.shape, wind_size, overlap)
-    spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
-    spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
-    u0 = spline_u(y[:,0], x[0,:])
-    v0 = spline_v(y[:,0], x[0,:])
-    if validation_mask is not None:
-        spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
-        val = spline_val(y[:,0], x[0,:]) >= .5
-        u0[val] = 0.0
-        v0[val] = 0.0
-    uflat = u0.flatten()
-    vflat = v0.flatten()
-    frame_a, frame_b = frame_a.to(device), frame_b.to(device)
-    aa = moving_window_array(frame_a, wind_size, overlap)[:,None,...].float()
-    bb = moving_window_array(frame_b, wind_size, overlap)[:,None,...].float()
+        iter_proc = time()
+        spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
+        spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
+        u0 = spline_u(self.slice_y, self.slice_x)
+        v0 = spline_v(self.slice_y, self.slice_x)
+        validate = False
+        if validation_mask is not None:
+            validate = True
+            spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
+            val = spline_val(self.slice_y, self.slice_x) >= .5
+            u0[val] = 0.0
+            v0[val] = 0.0
+        uflat = torch.from_numpy(u0.flatten()).to(device)
+        vflat = torch.from_numpy(v0.flatten()).to(device)
+        frame_a, frame_b = frame_a.to(device), frame_b.to(device)
+        aa = moving_window_array(frame_a, wind_size, overlap)[:,None,...].float()
+        bb = moving_window_array(frame_b, wind_size, overlap)[:,None,...].float()
+        
     
-    affine_transform = torch.tensor([[1., 0., 0.],
-                                    [0., 1., 0.]]).to(device)
-    affine_transform = affine_transform.repeat(aa.shape[0], 1, 1)
-    affine_transform[:, 1, 2] = torch.from_numpy(-vflat/wind_size)
-    affine_transform[:, 0, 2] = torch.from_numpy(-uflat/wind_size)
-    grid = F.affine_grid(affine_transform, aa.size())
-    aa = F.grid_sample(aa, grid, mode='bilinear',padding_mode="border")
+        self.affine_transform[:, 1, 2] = -vflat/wind_size
+        self.affine_transform[:, 0, 2] = -uflat/wind_size
+        grid = F.affine_grid(self.affine_transform, aa.size())
+        aa = F.grid_sample(aa, grid, mode='bicubic',padding_mode="border")
+
+        self.affine_transform[:, 1, 2] = vflat/wind_size
+        self.affine_transform[:, 0, 2] = uflat/wind_size
+        grid = F.affine_grid(self.affine_transform, bb.size())
+        bb = F.grid_sample(bb, grid, mode='bicubic',padding_mode="border")
+
+        # Normalize Intesity
+        aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
+        bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+        
+        corr = correalte_fft(aa, bb)
+        corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
+        du, dv, val = correlation_to_displacement(corr.squeeze(), self.n_rows, self.n_cols, validate)
+
+        v = v0 + dv
+        u = u0 + du
+
+        mask_u = (du > u0) * (np.rint(u0) > 0)
+        mask_v = (dv > v0) * (np.rint(v0) > 0)
+        if val is not None:
+            mask_u[val] = True
+            mask_v[val] = True
+
+        v[mask_v] = v0[mask_v]
+        u[mask_u] = u0[mask_u]
+        print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
+        return u, v, self.x, self.y, val
+
+class piv_iteration_CWS:
+    def __init__(self, frame_shape, wind_size, overlap, device) -> None:
+        self.n_rows, self.n_cols = get_field_shape(frame_shape, search_area_size=wind_size, overlap=overlap)
+        
+        self.x, self.y = get_coordinates(frame_shape, wind_size, overlap)
+        self.slice_x, self.slice_y = self.x[0,:], self.y[:,0]
+        
+        self.idx = moving_window_array(
+            torch.arange(0, frame_shape[-2]*frame_shape[-1], dtype=torch.int64, device=device).reshape(frame_shape), 
+            wind_size, overlap
+            )
+        
+        affine_transform = torch.tensor([[1., 0., 0.],
+                                        [0., 1., 0.]]).to(device)
+        self.affine_transform = affine_transform.repeat(self.n_rows * self.n_cols, 1, 1)
+
+    def __call__(self,
+    frame_a: torch.Tensor,
+    frame_b: torch.Tensor, 
+    x0: np.ndarray,  
+    y0: np.ndarray,  
+    u0: np.ndarray,  
+    v0: np.ndarray,
+    validation_mask: np.ndarray,
+    wind_size: int, 
+    overlap: int,
+    device: torch.device) -> tuple[np.ndarray, ...]:
+        
+        iter_proc = time()
+        spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
+        spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
+
+        u0 = spline_u(self.slice_y, self.slice_x)
+        v0 = spline_v(self.slice_y, self.slice_x)
+        u2 = u0 / 2 
+        v2 = v0 / 2 
+        validate = False
+        if validation_mask is not None:
+            validate = True
+            spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
+            val = spline_val(self.slice_y, self.slice_x) >= .5
+            u0[val] = 0.0
+            v0[val] = 0.0
+        v2t = torch.from_numpy(v2).type(torch.float32).to(device)
+        u2t = torch.from_numpy(u2).type(torch.float32).to(device)
+        v2t = v2t.view(-1)[..., None, None]
+        u2t = u2t.view(-1)[..., None, None]
+
+        frame_a, frame_b = frame_a.to(device), frame_b.to(device)
+        aa = biliniar_interpolation_CWS(frame_a, self.idx, -u2t, -v2t)
+        bb = biliniar_interpolation_CWS(frame_b, self.idx, u2t, v2t)
+
+        corr = correalte_fft(aa, bb)
+        corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
+
+        du, dv, val = correlation_to_displacement(corr, self.n_rows, self.n_cols, validate)
+
+        v = 2*v2 + dv
+        u = 2*u2 + du
+
+        mask_u = (du > u0) * (np.rint(u0) > 0)
+        mask_v = (dv > v0) * (np.rint(v0) > 0)
+        if val is not None:
+            mask_u[val] = True
+            mask_v[val] = True
+
+        v[mask_v] = v0[mask_v]
+        u[mask_u] = u0[mask_u]
+        print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
+        return u, v, self.x, self.y, val
+
+
+
+class piv_iteration_DWS:
+    def __init__(self, frame_shape, wind_size, overlap, device) -> None:
+        self.n_rows, self.n_cols = get_field_shape(frame_shape, search_area_size=wind_size, overlap=overlap)
+        
+        self.x, self.y = get_coordinates(frame_shape, wind_size, overlap)
+        self.slice_x, self.slice_y = self.x[0,:], self.y[:,0]
+        
+        self.idx = moving_window_array(
+            torch.arange(0, frame_shape[-2]*frame_shape[-1], dtype=torch.int64, device=device).reshape(frame_shape), 
+            wind_size, overlap
+            )
+        
     
-    affine_transform[:, 1, 2] = torch.from_numpy(vflat/wind_size)
-    affine_transform[:, 0, 2] = torch.from_numpy(uflat/wind_size)
-    grid = F.affine_grid(affine_transform, bb.size())
-    bb = F.grid_sample(bb, grid, mode='bilinear',padding_mode="border")
-
-    # Normalize Intesity
-    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
-    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
-    
-    corr = correalte_fft(aa, bb)
-    corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
-    du, dv, val = correlation_to_displacement(corr.squeeze(), n_rows, n_cols)
-
-    v = v0 + dv
-    u = u0 + du
-
-    mask_u = (du > u0) * (np.rint(u0) > 0)
-    mask_v = (dv > v0) * (np.rint(v0) > 0)
-    if val is not None:
-        mask_u[val] = True
-        mask_v[val] = True
-
-    v[mask_v] = v0[mask_v]
-    u[mask_u] = u0[mask_u]
-    print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
-    return u, v, x, y, val
-
-
-
-
-def piv_iteration_DWS(
+    def __call__(self,
     frame_a: torch.Tensor, 
     frame_b: torch.Tensor, 
     x0:       np.ndarray, 
@@ -557,52 +694,54 @@ def piv_iteration_DWS(
     overlap: int, 
     device: torch.device)->tuple[np.ndarray, ...]:
 
-    iter_proc = time()
-    frame_a = frame_a.numpy()
-    frame_b = frame_b.numpy()
-    n_rows, n_cols = get_field_shape(frame_a.shape, wind_size, overlap)
-    x, y = get_coordinates(frame_a.shape, wind_size, overlap)
-
-    spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
-    spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
-
-    u0 = spline_u(y[:,0], x[0,:])
-    v0 = spline_v(y[:,0], x[0,:])
+        iter_proc = time()
 
 
-    vin = v0/2
-    uin = u0/2
-    if validation_mask is not None:
-        spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
-        val = spline_val(y[:,0], x[0,:]) >= .5
-        vin[val] = 0.0
-        uin[val] = 0.0
-    bb = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_b, x.astype(np.int32), y.astype(np.int32), uin,  vin, wind_size))
-    aa = torch.from_numpy(fastSubpixel.iter_displacement_DWS(frame_a, x.astype(np.int32), y.astype(np.int32), -uin, -vin, wind_size))
+        spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
+        spline_v = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], v0)
 
-    aa, bb = aa.to(device), bb.to(device)
-    # Normalize Intesity
-    # aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
-    # bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+        u0 = spline_u(self.slice_y, self.slice_x)
+        v0 = spline_v(self.slice_y, self.slice_x)
+        validate = False
+        if validation_mask is not None:
+            validate = True
+            spline_val = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], validation_mask)
+            val = spline_val(self.slice_y, self.slice_x) >= .5
+            u0[val] = 0.0
+            v0[val] = 0.0
 
-    corr = correalte_fft(aa, bb)
-    corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
+        vin = v0/2
+        uin = u0/2
+        v2  = np.rint(vin)
+        u2  = np.rint(uin)
 
-    du, dv, val = correlation_to_displacement(corr, n_rows, n_cols)
+        v2t = torch.from_numpy(v2).to(device).type(torch.int64)
+        u2t = torch.from_numpy(u2).to(device).type(torch.int64)
+        v2t = v2t.view(-1)[..., None, None]
+        u2t = u2t.view(-1)[..., None, None]
+        frame_a, frame_b = frame_a.to(device), frame_b.to(device)
 
-    v = 2*np.rint(vin) + dv
-    u = 2*np.rint(uin) + du
+        aa = interpolation_DWS(frame_a, self.idx, -u2t, -v2t)
+        bb = interpolation_DWS(frame_b, self.idx, u2t, v2t)
 
-    mask_u = (du > u0) * (np.rint(u0) > 0)
-    mask_v = (dv > v0) * (np.rint(v0) > 0)
-    if val is not None:
-        mask_u[val] = True
-        mask_v[val] = True
+        corr = correalte_fft(aa, bb)
+        corr = corr - torch.amin(corr, (-2, -1), keepdim=True)
 
-    v[mask_v] = v0[mask_v]
-    u[mask_u] = u0[mask_u]
-    print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
-    return u, v, x, y, val
+        du, dv, val = correlation_to_displacement(corr, self.n_rows, self.n_cols, validate)
+
+        v = 2*np.rint(v2) + dv
+        u = 2*np.rint(u2) + du
+
+        mask_u = (du > u0) * (np.rint(u0) > 0)
+        mask_v = (dv > v0) * (np.rint(v0) > 0)
+        if val is not None:
+            mask_u[val] = True
+            mask_v[val] = True
+
+        v[mask_v] = v0[mask_v]
+        u[mask_u] = u0[mask_u]
+        print(f"Iteration finished in {(time() - iter_proc):.3f} sec", end=" ")
+        return u, v, self.x, self.y, val
 
 class IterModMap:
     functions = {
@@ -639,7 +778,14 @@ class OfflinePIV:
                        transform=ToTensor(dtype=torch.uint8)
                       )
         self._iter_function = IterModMap.functions[iter_mod]
-
+        if not self:
+            return
+        frame_a, frame_b = self._dataset[0]
+        self._iter_functions = []
+        for _ in range(self._iter-1):
+            wind_size = int(wind_size//self._iter_scale)
+            overlap = int(overlap//self._iter_scale)  
+            self._iter_functions.append(self._iter_function(frame_a.shape, wind_size, overlap, self._device))
     def __len__(self) -> int:
         return len(self._dataset)
 
@@ -647,40 +793,38 @@ class OfflinePIV:
         loader = torch.utils.data.DataLoader(self._dataset, 
             batch_size=None, num_workers=0, pin_memory=True)
 
-        end_time = time() 
+        end_time = time()
+
         for a, b in loader:
-             with torch.no_grad():
 
-                print(f"Load time {(time() - end_time):.3f} sec", end=' ')
-                start = time()
-                u, v, x, y, val = extended_search_area_piv(a, b, window_size=self._wind_size, 
-                                                overlap=self._overlap, device=self._device)
-                
+            print(f"Load time {(time() - end_time):.3f} sec", end=' ')
+            start = time()
+            a, b = a.to(self._device), b.to(self._device)
+            u, v, x, y, val = extended_search_area_piv(a, b, window_size=self._wind_size, 
+                                            overlap=self._overlap, device=self._device)
+            
+            wind_size = self._wind_size
+            overlap = self._overlap
+            for iter in range(self._iter-1):
+                wind_size = int(wind_size//self._iter_scale)
+                overlap = int(overlap//self._iter_scale)                    
+                u, v, x, y, val = self._iter_functions[iter](a, b, x, y, u, v, val, wind_size, overlap, self._device)
+            if val is not None:
+                u[val] = np.nan
+                v[val] = np.nan
+                u = interpolate_boarders(u)
+                v = interpolate_boarders(v)
+                u = fastSubpixel.replace_nans(u) 
+                v = fastSubpixel.replace_nans(v) 
+                # u = interpolate_nan(u)
+                # v = interpolate_nan(v)
 
+            u =  np.flip(u, axis=0)
+            v = -np.flip(v, axis=0)
 
-                wind_size = self._wind_size
-                overlap = self._overlap
-                for _ in range(self._iter-1):
-                    wind_size = int(wind_size//self._iter_scale)
-                    overlap = int(overlap//self._iter_scale)                    
-                    u, v, x, y, val = self._iter_function(a, b, x, y, u, v, val, wind_size, overlap, self._device)
-
-                if val is not None:
-                    u[val] = np.nan
-                    v[val] = np.nan
-                    # u = interpolate_boarders(u)
-                    # v = interpolate_boarders(v)
-                    # u = fastSubpixel.replace_nans(u) 
-                    # v = fastSubpixel.replace_nans(v) 
-                    u = interpolate_nan(u)
-                    v = interpolate_nan(v)
-
-                u =  np.flip(u, axis=0)
-                v = -np.flip(v, axis=0)
-
-                yield x, y, u, v
-                end_time = time()
-                print(f"Batch finished in {(end_time - start):.3f} sec")
+            yield x, y, u, v
+            end_time = time()
+            print(f"Batch finished in {(end_time - start):.3f} sec")
 
 
 class OnlinePIV:
