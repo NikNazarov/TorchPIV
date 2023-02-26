@@ -1,5 +1,5 @@
 # PyTorch accelerated Particle Image Velocimetry
-This program implements the basic algorithms of the PIV method, such as an iterative cross-correlation method based on FFT with an integer and continuous displacement __(DWS, CWS)__ of the interrogation windows, filtering and interpolation of the pair loss effect, and so on. At this stage, the __graphical interface__ is available, the ability to select PIV hyperparameters. The key feature of the project is the use of graphics accelerators due to the __torch__ library. PIV algorithm __almost__ completely vectorized, what results in a very high performance using the GPU.
+This program implements the basic algorithms of the PIV method, such as an iterative cross-correlation method based on FFT with an integer and continuous displacement __(DWS, CWS)__ of the interrogation windows, filtering and interpolation of the pair loss effect, and so on. At this stage, the __graphical interface__ is available, the ability to select PIV hyperparameters. The key feature of the project is the use of graphics accelerators due to the __torch__ library. PIV algorithm is completely vectorized, what results in a very high performance using the GPU, but still has a room for improvement.
 
 __Parameters of the program:__
 1. Interrogation window size
