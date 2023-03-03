@@ -6,7 +6,7 @@ __Parameters of the program:__
 2. Window overlap size
 3. Coordinate scale
 4. Time between frames
-5. Selection of the calculation device (CPU or any of your GPUs)
+5. Selection of the device (CPU or any of your GPUs)
 6. Iteration method: DWS or CWS
 7. The number of iterations of the algorithm
 8. Interrogation window scale during iterations
@@ -19,7 +19,6 @@ It is easier to use conda environment.
 2. Install pytorch with GPU support https://pytorch.org/ . Matching your CUDA version is not critical since PyTorch installs it's own cudatoolkit.  
 3. In your environment or command line <code>pip install -r /path/to/requirements.txt </code>
 If you facing some troubles try to <code>pip install "module"</code> manually for each line
-4. Compile cython code with <code>python setup.py build_ext --inplace </code>. Cython compiler may throw an error because it needs Visual Studio Build Tools for this code. The compiler will provide a link to the Build Tools download page.
 
 Tested on Windows
 
