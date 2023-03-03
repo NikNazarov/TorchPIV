@@ -92,10 +92,10 @@ def biliniar_interpolation_CWS(array: torch.Tensor, grid:torch.Tensor,
     Q22 = up_y   * frame_shape[-1] + up_x
     Q21 = down_y * frame_shape[-1] + up_x
 
-    Q11 = torch.clamp(Q11, 0, array.numel()-1)
-    Q21 = torch.clamp(Q21, 0, array.numel()-1)
-    Q12 = torch.clamp(Q12, 0, array.numel()-1)
-    Q22 = torch.clamp(Q22, 0, array.numel()-1)
+    Q11.clamp_(0, array.numel()-1)
+    Q21.clamp_(0, array.numel()-1)
+    Q12.clamp_(0, array.numel()-1)
+    Q22.clamp_(0, array.numel()-1)
 
 
     f_Q11 = torch.gather(array.view(-1), -1, Q11.view(-1)).reshape(grid.shape)
@@ -116,7 +116,7 @@ def interpolation_DWS(array: torch.Tensor, grid:torch.Tensor,
                     vel_x: torch.Tensor, vel_y: torch.Tensor) -> torch.Tensor:
     frame_shape = array.shape
     new_grid = grid + vel_y*frame_shape[-1] + vel_x
-    new_grid = torch.clamp(new_grid, 0, array.numel()-1)
+    new_grid.clamp_(0, array.numel()-1)
     f_new = torch.gather(array.view(-1), -1, new_grid.view(-1)).reshape(grid.shape)
     return f_new
     
@@ -816,8 +816,8 @@ class OfflinePIV:
                 v = interpolate_boarders(v)
                 u = fastSubpixel.replace_nans(u) 
                 v = fastSubpixel.replace_nans(v) 
-                # u = interpolate_nan(u)
-                # v = interpolate_nan(v)
+                u = interpolate_nan(u)
+                v = interpolate_nan(v)
 
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
