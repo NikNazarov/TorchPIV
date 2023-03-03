@@ -6,7 +6,6 @@ from typing import Generator, Tuple
 from torch.utils.data import Dataset
 from scipy import interpolate
 import cv2
-import fastSubpixel
 from time import time
 from PlotterFunctions import natural_keys
 
@@ -76,7 +75,19 @@ class PIVDataset(Dataset):
 
 def biliniar_interpolation_CWS(array: torch.Tensor, grid:torch.Tensor, 
                                 vel_x: torch.Tensor, vel_y: torch.Tensor) -> torch.Tensor:
-    
+    """
+    PyTorch implementation of bilinear interpolation for CWS
+    Key idea is to shift corresponding IW indices then perform torch.gather operation
+    array: 2d torch.Tensor 
+        an two dimensions array of integers containing grey levels of
+        the frame.
+    grid: 3d torch.Tensor
+        [c, w, h] Tensor of image elments flatten indices to be shifted
+    vel_x: 3d torch.Tensor
+        [c, 1, 1] three dimensional tensor of torch.float32 x velocities in pixel units 
+    vel_y: 3d torch.Tensor
+        [c, 1, 1] three dimensional tensor of torch.float32 y velocities in pixel units 
+    """
     frame_shape = array.shape
     grid_y, grid_x = grid // frame_shape[-1], grid % frame_shape[-1] 
     new_y, new_x = grid_y + vel_y, grid_x + vel_x
@@ -114,6 +125,19 @@ def biliniar_interpolation_CWS(array: torch.Tensor, grid:torch.Tensor,
 
 def interpolation_DWS(array: torch.Tensor, grid:torch.Tensor, 
                     vel_x: torch.Tensor, vel_y: torch.Tensor) -> torch.Tensor:
+    """
+    PyTorch implementation of nearest interpolation for DWS
+    Key idea is to shift corresponding IW indices then perform torch.gather operation
+    array: 2d torch.Tensor 
+        an two dimensions array of integers containing grey levels of
+        the frame.
+    grid: 3d torch.Tensor
+        [c, w, h] Tensor of image elments flatten indices to be shifted
+    vel_x: 3d torch.Tensor
+        [c, 1, 1] three dimensional tensor of torch.int64 x velocities in pixel units 
+    vel_y: 3d torch.Tensor
+        [c, 1, 1] three dimensional tensor of torch.int64 y velocities in pixel units 
+    """
     frame_shape = array.shape
     new_grid = grid + vel_y*frame_shape[-1] + vel_x
     new_grid.clamp_(0, array.numel()-1)
@@ -168,44 +192,43 @@ def find_first_peak_position(corr: torch.Tensor) -> torch.Tensor:
     m = corr.view(c, -1).argmax(-1, keepdim=True)
     return torch.cat((m // d, m % k), -1)
 
-def interpolate_nan(
-        vec: np.ndarray,
-        method: str = 'linear',
-        fill_value: int = 0
-    ) -> np.ndarray:
-    """
-    :param vec (:, :): 2D field
-    :param method: interpolation method, one of
-        'nearest', 'linear', 'cubic'.
-    :param fill_value: which value to use for filling up data outside the
-        convex hull of known pixel values.
-        Default is linear.
-    :return: the image with missing values interpolated
-    
-    """
-    if not np.isnan(vec).any():
-        return vec
-    mask = np.ma.masked_invalid(vec).mask
-    h, w = vec.shape
-    xx, yy = np.meshgrid(np.arange(0, w), np.arange(0, h))
+def fillMissingValues(target_for_interp,
+                      interpolator=interpolate.LinearNDInterpolator):
+    '''
+    Interpolates missing values in matrix using bilinear interpolation
+    as deafoult
+    target_for_interp: np.ndarray
+    interpolator: scipy interpolator class, default LinearNDInterpolator
+    ''' 
+    def getPixelsForInterp(img): 
+        """
+        Calculates a mask of pixels neighboring invalid values - 
+           to use for interpolation. 
+        """
+        # mask invalid pixels
+        invalid_mask = np.isnan(img)
+        # plt.imshow(invalid_mask)
+        # plt.show()
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
+        #dilate to mark borders around invalid regions
+        dilated_mask = cv2.dilate(invalid_mask.astype('uint8'), kernel, 
+                          borderType=cv2.BORDER_CONSTANT, borderValue=int(0))
+        # pixelwise "and" with valid pixel mask (~invalid_mask)
+        masked_for_interp = dilated_mask *  ~invalid_mask
+        return masked_for_interp.astype('bool'), invalid_mask
 
-    known_x = xx[~mask]
-    known_y = yy[~mask]
-    known_v = vec[~mask]
-    missing_x = xx[mask]
-    missing_y = yy[mask]
+    # Mask pixels for interpolation
+    mask_for_interp, invalid_mask = getPixelsForInterp(target_for_interp)
 
+    # Interpolate only holes, only using these pixels
+    points = np.argwhere(mask_for_interp)
+    values = target_for_interp[mask_for_interp]
+    interp = interpolator(points, values)
 
-    interp_values = interpolate.griddata(
-        (known_x, known_y), 
-        known_v, 
-        (missing_x, missing_y),
-        method=method, fill_value=fill_value
-    )
-    interp_image = vec.copy()
-    interp_image[missing_y, missing_x] = interp_values
-    return interp_image
+    target_for_interp[invalid_mask] = interp(np.argwhere(invalid_mask))
+    return target_for_interp
+
 
 def nan_helper(y):
     """Helper to handle indices and logical indices of NaNs.
@@ -241,6 +264,7 @@ def interpolate_boarders(vec: np.ndarray) -> np.ndarray:
 def peak2peak_secondpeak(
     corr: torch.Tensor, imax: torch.Tensor, 
     wind: int=2) -> torch.Tensor:
+
     c, d, k = corr.shape
     cor = corr.view(c, -1)
     for i in range(-wind, wind+1):
@@ -258,6 +282,18 @@ def correlation_to_displacement(
     validate: bool=True,
     val_ratio=1.2, 
     validation_window=3) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Correlation maps are converted to displacement for 
+    each interrogation window
+    Inputs:
+        corr : 3D torch.Tesnsor [channels, :, :]
+            contains output of the correlate_fft
+        n_rows, n_cols : number of interrogation windows, output of the
+            get_field_shape
+        validate: bool Flag for validation 
+        val_ratio: int = 1.2 peak2peak validation coefficient
+        validation_window: int = 3 half of peak2peak validation window
+    """
     validation_mask = None
     c, d, k = corr.shape
     eps = 1e-7
@@ -301,47 +337,7 @@ def correlation_to_displacement(
     default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
     v = v - default_peak_position[0]
     u = u - default_peak_position[1] 
-    u = interpolate_boarders(u)
-    v = interpolate_boarders(v)
-    u = fastSubpixel.replace_nans(u) 
-    v = fastSubpixel.replace_nans(v) 
-    u = interpolate_nan(u)
-    v = interpolate_nan(v)
     return u, v, validation_mask
-
-def c_correlation_to_displacement(
-    corr: torch.Tensor, 
-    n_rows, n_cols, interp_nan=False) -> Tuple[np.ndarray]:
-    """
-    Correlation maps are converted to displacement for each interrogation
-    window using the convention that the size of the correlation map
-    is 2N -1 where N is the size of the largest interrogation window
-    (in frame B) that is called search_area_size
-    Inputs:
-        corr : 3D torch.Tesnsor [channels, :, :]
-            contains output of the fft_correlate_images
-        n_rows, n_cols : number of interrogation windows, output of the
-            get_field_shape
-    """
-    # iterate through interrogation widows and search areas
-    eps = 1e-7
-    first_peak = find_first_peak_position(corr)
-    # center point of the correlation map
-    default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
-    corr += eps
-    corr = corr.cpu().numpy()
-    first_peak = first_peak.cpu().numpy()    
-
-    temp = fastSubpixel.find_subpixel_position(corr, first_peak, n_rows, n_cols)
-    peak = (np.array(temp).T - default_peak_position.T).T
-    u, v = peak[0], peak[1]
-    u, v = u.squeeze(), v.squeeze()
-    # u = interpolate_boarders(u)
-    # v = interpolate_boarders(v)
-    # if interp_nan:
-    #     u = interpolate_nan(u)
-    #     v = interpolate_nan(v)
-    return u, v
 
 
 def get_field_shape(image_size, search_area_size, overlap) -> Tuple:
@@ -377,11 +373,6 @@ def get_field_shape(image_size, search_area_size, overlap) -> Tuple:
     ) + 1
     return field_shape
 
-def resize_iteration(arr: np.ndarray, shape: tuple=None):
-    arr = cv2.resize(arr, shape, interpolation=cv2.INTER_LINEAR)
-    # Depricated method, may use later
-    # arr = tinterpolate(torch.from_numpy(arr[None, None, ...]), scale_factor=2, mode='bilinear', align_corners=True).numpy()
-    return arr.squeeze()
 
 def extended_search_area_piv(
     frame_a,
@@ -389,8 +380,7 @@ def extended_search_area_piv(
     window_size=32,
     overlap=0,
     validate: bool = False,
-    validation_ratio:float = 1.2,
-    device: torch.device=torch.device("cpu")
+    validation_ratio:float = 1.2
 ) -> Tuple[np.ndarray, ...]:
     """Standard PIV cross-correlation algorithm, with an option for
     extended area search that increased dynamic range. The search region
@@ -418,9 +408,15 @@ def extended_search_area_piv(
         the number of pixels by which two adjacent windows overlap
         [default: 0 pix].
 
+    validate: bool=False
+        peak2peak validation flag
+
+    validation_ratio: float=1.2
+        peak2peak validation ratio
+
     """
 
-    frame_a, frame_b = frame_a.to(device), frame_b.to(device)
+    # frame_a, frame_b = frame_a.to(device), frame_b.to(device)
 
     if overlap >= window_size:
         raise ValueError("Overlap has to be smaller than the window_size")
@@ -599,7 +595,7 @@ class piv_iteration_CWS_Fast:
 class piv_iteration_CWS:
     def __init__(self, frame_shape, wind_size, overlap, device) -> None:
         self.n_rows, self.n_cols = get_field_shape(frame_shape, search_area_size=wind_size, overlap=overlap)
-        
+        self.device = device
         self.x, self.y = get_coordinates(frame_shape, wind_size, overlap)
         self.slice_x, self.slice_y = self.x[0,:], self.y[:,0]
         
@@ -607,10 +603,7 @@ class piv_iteration_CWS:
             torch.arange(0, frame_shape[-2]*frame_shape[-1], dtype=torch.int64, device=device).reshape(frame_shape), 
             wind_size, overlap
             )
-        
-        affine_transform = torch.tensor([[1., 0., 0.],
-                                        [0., 1., 0.]]).to(device)
-        self.affine_transform = affine_transform.repeat(self.n_rows * self.n_cols, 1, 1)
+
 
     def __call__(self,
     frame_a: torch.Tensor,
@@ -619,10 +612,7 @@ class piv_iteration_CWS:
     y0: np.ndarray,  
     u0: np.ndarray,  
     v0: np.ndarray,
-    validation_mask: np.ndarray,
-    wind_size: int, 
-    overlap: int,
-    device: torch.device) -> tuple[np.ndarray, ...]:
+    validation_mask: np.ndarray) -> tuple[np.ndarray, ...]:
         
         iter_proc = time()
         spline_u = interpolate.RectBivariateSpline(y0[:,0], x0[0,:], u0)
@@ -639,12 +629,12 @@ class piv_iteration_CWS:
             val = spline_val(self.slice_y, self.slice_x) >= .5
             u0[val] = 0.0
             v0[val] = 0.0
-        v2t = torch.from_numpy(v2).type(torch.float32).to(device)
-        u2t = torch.from_numpy(u2).type(torch.float32).to(device)
+        v2t = torch.from_numpy(v2).type(torch.float32).to(self.device)
+        u2t = torch.from_numpy(u2).type(torch.float32).to(self.device)
         v2t = v2t.view(-1)[..., None, None]
         u2t = u2t.view(-1)[..., None, None]
 
-        frame_a, frame_b = frame_a.to(device), frame_b.to(device)
+        frame_a, frame_b = frame_a.to(self.device), frame_b.to(self.device)
         aa = biliniar_interpolation_CWS(frame_a, self.idx, -u2t, -v2t)
         bb = biliniar_interpolation_CWS(frame_b, self.idx, u2t, v2t)
 
@@ -672,7 +662,7 @@ class piv_iteration_CWS:
 class piv_iteration_DWS:
     def __init__(self, frame_shape, wind_size, overlap, device) -> None:
         self.n_rows, self.n_cols = get_field_shape(frame_shape, search_area_size=wind_size, overlap=overlap)
-        
+        self.device = device
         self.x, self.y = get_coordinates(frame_shape, wind_size, overlap)
         self.slice_x, self.slice_y = self.x[0,:], self.y[:,0]
         
@@ -689,10 +679,7 @@ class piv_iteration_DWS:
     y0:       np.ndarray, 
     u0:      np.ndarray, 
     v0:      np.ndarray,
-    validation_mask: np.ndarray, 
-    wind_size: int,
-    overlap: int, 
-    device: torch.device)->tuple[np.ndarray, ...]:
+    validation_mask: np.ndarray)->tuple[np.ndarray, ...]:
 
         iter_proc = time()
 
@@ -715,12 +702,11 @@ class piv_iteration_DWS:
         v2  = np.rint(vin)
         u2  = np.rint(uin)
 
-        v2t = torch.from_numpy(v2).to(device).type(torch.int64)
-        u2t = torch.from_numpy(u2).to(device).type(torch.int64)
+        v2t = torch.from_numpy(v2).to(self.device).type(torch.int64)
+        u2t = torch.from_numpy(u2).to(self.device).type(torch.int64)
         v2t = v2t.view(-1)[..., None, None]
         u2t = u2t.view(-1)[..., None, None]
-        frame_a, frame_b = frame_a.to(device), frame_b.to(device)
-
+        frame_a, frame_b = frame_a.to(self.device), frame_b.to(self.device)
         aa = interpolation_DWS(frame_a, self.idx, -u2t, -v2t)
         bb = interpolation_DWS(frame_b, self.idx, u2t, v2t)
 
@@ -801,24 +787,22 @@ class OfflinePIV:
             start = time()
             a, b = a.to(self._device), b.to(self._device)
             u, v, x, y, val = extended_search_area_piv(a, b, window_size=self._wind_size, 
-                                            overlap=self._overlap, device=self._device)
+                                            overlap=self._overlap, validate=True)
             
             wind_size = self._wind_size
             overlap = self._overlap
             for iter in range(self._iter-1):
                 wind_size = int(wind_size//self._iter_scale)
                 overlap = int(overlap//self._iter_scale)                    
-                u, v, x, y, val = self._iter_functions[iter](a, b, x, y, u, v, val, wind_size, overlap, self._device)
+                u, v, x, y, val = self._iter_functions[iter](a, b, x, y, u, v, val)
             if val is not None:
                 u[val] = np.nan
                 v[val] = np.nan
                 u = interpolate_boarders(u)
                 v = interpolate_boarders(v)
-                u = fastSubpixel.replace_nans(u) 
-                v = fastSubpixel.replace_nans(v) 
-                u = interpolate_nan(u)
-                v = interpolate_nan(v)
-
+                u = fillMissingValues(u)
+                v = fillMissingValues(v)
+            
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
 
