@@ -192,15 +192,7 @@ def find_first_peak_position(corr: torch.Tensor) -> torch.Tensor:
     m = corr.view(c, -1).argmax(-1, keepdim=True)
     return torch.cat((m // d, m % k), -1)
 
-def fillMissingValues(target_for_interp,
-                      interpolator=interpolate.LinearNDInterpolator):
-    '''
-    Interpolates missing values in matrix using bilinear interpolation
-    as deafoult
-    target_for_interp: np.ndarray
-    interpolator: scipy interpolator class, default LinearNDInterpolator
-    ''' 
-    def getPixelsForInterp(img): 
+def getPixelsForInterp(img): 
         """
         Calculates a mask of pixels neighboring invalid values - 
            to use for interpolation. 
@@ -217,6 +209,16 @@ def fillMissingValues(target_for_interp,
         # pixelwise "and" with valid pixel mask (~invalid_mask)
         masked_for_interp = dilated_mask *  ~invalid_mask
         return masked_for_interp.astype('bool'), invalid_mask
+
+def fillMissingValues(target_for_interp,
+                      interpolator=interpolate.LinearNDInterpolator):
+    '''
+    Interpolates missing values in matrix using bilinear interpolation
+    as deafoult
+    target_for_interp: np.ndarray
+    interpolator: scipy interpolator class, default LinearNDInterpolator
+    ''' 
+    
 
     # Mask pixels for interpolation
     mask_for_interp, invalid_mask = getPixelsForInterp(target_for_interp)
@@ -251,13 +253,17 @@ def interpolate_boarders(vec: np.ndarray) -> np.ndarray:
     if not np.isnan(vec).any():
         return vec
     nans, x = nan_helper(vec[0,:])
-    vec[0,nans]   = np.interp(x(nans), x(~nans), vec[0,:][~nans])    
+    if not nans.all():
+        vec[0,nans]   = np.interp(x(nans), x(~nans), vec[0,:][~nans])    
     nans, x = nan_helper(vec[-1,:])
-    vec[-1,nans] = np.interp(x(nans), x(~nans), vec[-1,:][~nans])
+    if not nans.all():    
+        vec[-1,nans] = np.interp(x(nans), x(~nans), vec[-1,:][~nans])
     nans, x = nan_helper(vec[:,0])
-    vec[nans,0]   = np.interp(x(nans), x(~nans), vec[:,0][~nans])
+    if not nans.all():
+        vec[nans,0]   = np.interp(x(nans), x(~nans), vec[:,0][~nans])
     nans, x = nan_helper(vec[:,-1])
-    vec[nans,-1] = np.interp(x(nans), x(~nans), vec[:,-1][~nans])
+    if not nans.all():
+        vec[nans,-1] = np.interp(x(nans), x(~nans), vec[:,-1][~nans])
     
     return vec
 
