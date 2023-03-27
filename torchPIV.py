@@ -193,22 +193,22 @@ def find_first_peak_position(corr: torch.Tensor) -> torch.Tensor:
     return torch.cat((m // d, m % k), -1)
 
 def getPixelsForInterp(img): 
-        """
-        Calculates a mask of pixels neighboring invalid values - 
-           to use for interpolation. 
-        """
-        # mask invalid pixels
-        invalid_mask = np.isnan(img)
-        # plt.imshow(invalid_mask)
-        # plt.show()
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    """
+    Calculates a mask of pixels neighboring invalid values - 
+        to use for interpolation. 
+    """
+    # mask invalid pixels
+    invalid_mask = np.isnan(img)
+    # plt.imshow(invalid_mask)
+    # plt.show()
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
-        #dilate to mark borders around invalid regions
-        dilated_mask = cv2.dilate(invalid_mask.astype('uint8'), kernel, 
-                          borderType=cv2.BORDER_CONSTANT, borderValue=int(0))
-        # pixelwise "and" with valid pixel mask (~invalid_mask)
-        masked_for_interp = dilated_mask *  ~invalid_mask
-        return masked_for_interp.astype('bool'), invalid_mask
+    #dilate to mark borders around invalid regions
+    dilated_mask = cv2.dilate(invalid_mask.astype('uint8'), kernel, 
+                        borderType=cv2.BORDER_CONSTANT, borderValue=int(0))
+    # pixelwise "and" with valid pixel mask (~invalid_mask)
+    masked_for_interp = dilated_mask *  ~invalid_mask
+    return masked_for_interp.astype('bool'), invalid_mask
 
 def fillMissingValues(target_for_interp,
                       interpolator=interpolate.LinearNDInterpolator):
@@ -222,7 +222,6 @@ def fillMissingValues(target_for_interp,
 
     # Mask pixels for interpolation
     mask_for_interp, invalid_mask = getPixelsForInterp(target_for_interp)
-
     # Interpolate only holes, only using these pixels
     points = np.argwhere(mask_for_interp)
     values = target_for_interp[mask_for_interp]
@@ -276,8 +275,7 @@ def peak2peak_secondpeak(
     for i in range(-wind, wind+1):
         for j in range(-wind, wind+1):
             ids = imax + i + k * j
-            ids[ids < 0] = 0
-            ids[ids > k*d-1] = k*d - 1
+            torch.clamp_(ids, 0, k*d-1)
             cor.scatter_(-1, ids, 0.0)
     second_max = cor.argmax(-1, keepdim=True)
     return second_max
@@ -326,8 +324,8 @@ def correlation_to_displacement(
     nom2 = torch.log(cb) - torch.log(ct) 
     den2 = 2 * (torch.log(cb) + torch.log(ct)) - 4 * torch.log(cm) 
 
-
     m2d = torch.cat((m // d, m % k), -1)
+    
     v = m2d[:, 0][:, None] + nom2/den2
     u = m2d[:, 1][:, None] + nom1/den1
 
@@ -337,12 +335,13 @@ def correlation_to_displacement(
         validation_mask[(left >= k*d - 1) * (right <= 0) * (top >= k*d - 1) * (bot <= 0)] = True
         validation_mask = validation_mask.reshape(n_rows, n_cols).cpu().numpy()
 
+    default_peak_position = corr.shape[-2:]
+    v = v - int(default_peak_position[0] / 2)
+    u = u - int(default_peak_position[1] / 2)
+    torch.nan_to_num_(v)
+    torch.nan_to_num_(u)
     u = u.reshape(n_rows, n_cols).cpu().numpy()
     v = v.reshape(n_rows, n_cols).cpu().numpy()
-     
-    default_peak_position = np.floor(np.array(corr[0, :, :].shape)/2)
-    v = v - default_peak_position[0]
-    u = u - default_peak_position[1] 
     return u, v, validation_mask
 
 
@@ -794,13 +793,14 @@ class OfflinePIV:
             a, b = a.to(self._device), b.to(self._device)
             u, v, x, y, val = extended_search_area_piv(a, b, window_size=self._wind_size, 
                                             overlap=self._overlap, validate=True)
-            
+
             wind_size = self._wind_size
             overlap = self._overlap
             for iter in range(self._iter-1):
                 wind_size = int(wind_size//self._iter_scale)
                 overlap = int(overlap//self._iter_scale)                    
                 u, v, x, y, val = self._iter_functions[iter](a, b, x, y, u, v, val)
+
             if val is not None:
                 u[val] = np.nan
                 v[val] = np.nan
