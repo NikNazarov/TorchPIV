@@ -3,7 +3,6 @@ import re
 import pandas as pd
 import numpy as np
 import json
-gtokgrogopergpjm
 from PyQt5.QtWidgets import QMessageBox
 
 def show_message(message: str) -> None:
