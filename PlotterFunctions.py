@@ -38,13 +38,7 @@ def natural_keys(text):
     return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
 def set_width(obj: object, target_type: type, width: int):
-    '''
-    Helper function to set size of object's inner widgets
-    '''
-    if "setFixedWidth" in dir(target_type):
-        for key, val in obj.__dict__.items():
-            if isinstance(val, target_type):
-                obj.__dict__[key].setFixedWidth(width)
+    pass
 
 
 def save_table(name, path, data: dict, sep:str=', '):
