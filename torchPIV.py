@@ -225,9 +225,11 @@ def fillMissingValues(target_for_interp,
     # Interpolate only holes, only using these pixels
     points = np.argwhere(mask_for_interp)
     values = target_for_interp[mask_for_interp]
-    interp = interpolator(points, values)
-
-    target_for_interp[invalid_mask] = interp(np.argwhere(invalid_mask))
+    if points.size:
+        interp = interpolator(points, values)
+        target_for_interp[invalid_mask] = interp(np.argwhere(invalid_mask))
+    else:
+        print("Warning! to many false vectors")
     return target_for_interp
 
 

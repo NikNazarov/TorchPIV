@@ -78,7 +78,7 @@ class PIVWorker(Worker):
             self.avg_u = np.zeros_like(u, dtype=np.float64)
             self.avg_v = np.zeros_like(v, dtype=np.float64)
 
-        print(f"Avg PIV time {((time.time() - start)/i*1000):.0f} ms")
+        print(f"Avg PIV time {((time.time() - start)/(i+1)*1000):.0f} ms")
         self.progress.emit(0)
         if u_inst:
             u_inst = np.stack(u_inst, axis=0)
