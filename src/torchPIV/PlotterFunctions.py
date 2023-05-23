@@ -139,7 +139,10 @@ class PIVparams(object):
         convert to dict
         set attributes
         """
-        with open("settings.json", 'r') as file:
+        path=os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'settings.json')
+        with open(path, 'r') as file:
             data = json.load(file)
             for key, val in data.items():
                 if key not in dir(cls):
@@ -156,7 +159,10 @@ class PIVparams(object):
             name: getattr(cls, name) for name in dir(cls) 
             if not callable(getattr(cls, name)) and not name.startswith("__")
         }
-        with open("settings.json", 'w') as file:
+        path=os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'settings.json')
+        with open(path, 'w') as file:
             json.dump(data, file)
 
 class Singleton(object):

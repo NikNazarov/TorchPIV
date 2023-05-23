@@ -17,8 +17,13 @@ __Installation:__
 It is easier to use conda environment.
 1. Install nvidia CUDA Toolkit https://developer.nvidia.com/cuda-toolkit to ensure latest nvidia driver usage
 2. Install pytorch with GPU support https://pytorch.org/ . Matching your CUDA version is not critical since PyTorch installs it's own cudatoolkit.  
-3. In your environment or command line <code>pip install -r /path/to/requirements.txt </code>
-If you facing some troubles try to <code>pip install "module"</code> manually for each line
+3. In your environment or command line <code>pip install TorchPIV</code>
+
+__Usage:__  
+Start GUI version from terminal  
+<code>python</code>  
+<code>import torchPIV</code>  
+<code>torchPIV.runGUI()</code>
 
 Tested on Windows
 

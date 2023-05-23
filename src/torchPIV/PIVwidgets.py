@@ -7,13 +7,13 @@ import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from PlotterFunctions import Database, show_message, autoscale_y, make_name, save_table
+from torchPIV.PlotterFunctions import Database, show_message, autoscale_y, make_name, save_table
 from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSplitter
 )
-from ControlsWidgets import ProfileControls
+from torchPIV.ControlsWidgets import ProfileControls
 
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self,  parent=None, width=7, height=7, dpi=100):

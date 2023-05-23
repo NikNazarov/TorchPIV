@@ -2,10 +2,10 @@ import os
 import time
 import numpy as np
 from collections import deque
-from PlotterFunctions import PIVparams, natural_keys
+from torchPIV.PlotterFunctions import PIVparams, natural_keys
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QTimer
-from PlotterFunctions import save_table
-from torchPIV import OfflinePIV, free_cuda_memory
+from torchPIV.PlotterFunctions import save_table
+from torchPIV.PIVbackend import OfflinePIV, free_cuda_memory
 
 
 

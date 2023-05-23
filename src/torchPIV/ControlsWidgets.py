@@ -5,7 +5,7 @@ import torch
 from bisect import bisect_left
 from PyQt5.QtGui import QDoubleValidator, QIntValidator
 from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot  
-from PlotterFunctions import Database, PIVparams, set_width
+from torchPIV.PlotterFunctions import Database, PIVparams, set_width
 from PyQt5.QtWidgets import (
     QFrame,
     QLabel,

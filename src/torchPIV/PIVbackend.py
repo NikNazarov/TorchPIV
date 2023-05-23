@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 from scipy import interpolate
 import cv2
 from time import time
-from PlotterFunctions import natural_keys
+from torchPIV.PlotterFunctions import natural_keys
 
 class DeviceMap:
     devicies = {

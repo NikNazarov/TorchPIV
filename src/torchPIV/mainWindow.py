@@ -16,10 +16,10 @@ from PyQt5.QtWidgets import (
     QMenu,
     QHBoxLayout,
 )
-from PIVwidgets import PIVWidget
-from ControlsWidgets import AnalysControlWidget
-from PlotterFunctions import Database, show_message
-from workers import PIVWorker, OnlineWorker
+from torchPIV.PIVwidgets import PIVWidget
+from torchPIV.ControlsWidgets import AnalysControlWidget
+from torchPIV.PlotterFunctions import Database, show_message
+from torchPIV.workers import PIVWorker, OnlineWorker
 gc.disable() 
 
 class MainWindow(QMainWindow):
@@ -248,12 +248,15 @@ class UncaughtHook(QObject):
 qt_exception_hook = UncaughtHook()
 
 
-
-if __name__ == "__main__":
-    
+def runGUI():
     app = QApplication(sys.argv)
     app.setStyle("fusion")
     app.setFont(QFont("Helvetica", 12))
     w = MainWindow()
     w.show()
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    runGUI()
+
