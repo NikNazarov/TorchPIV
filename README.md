@@ -1,5 +1,5 @@
 # PyTorch accelerated Particle Image Velocimetry
-This program implements the basic algorithms of the PIV method, such as an iterative cross-correlation method based on FFT with an integer and continuous displacement __(DWS, CWS)__ of the interrogation windows, filtering and interpolation of the pair loss effect, and so on. At this stage, the __graphical interface__ is available, the ability to select PIV hyperparameters. The key feature of the project is the use of graphics accelerators due to the __torch__ library. PIV algorithm is completely vectorized, what results in a very high performance using the GPU, but still has a room for improvement.
+This program implements the basic algorithms of the PIV method, such as an iterative cross-correlation method based on FFT with an integer and continuous displacement __(DWS, CWS)__ of the interrogation windows, filtering and interpolation of the pair loss effect, and so on. At this stage, the __graphical interface__ is available, the ability to select PIV hyperparameters. The key feature of the project is the use of GPU due to the __torch__ library. PIV algorithm is completely vectorized, what results in a very high performance using the GPU, but still has a room for improvement.
 
 __Parameters of the program:__
 1. Interrogation window size
@@ -22,8 +22,35 @@ It is easier to use conda environment.
 __Usage:__  
 Start GUI version from terminal  
 <code>python</code>  
-<code>import torchPIV</code>  
-<code>torchPIV.runGUI()</code>
+```python
+import torchPIV 
+torchPIV.runGUI()
+```
+Use as a part of the script 
+```python
+from torchPIV import OfflinePIV
+
+piv_gen = OfflinePIV(
+    folder="test_images", # Path to experiment
+    device=torch.cuda.get_device_name(), # Device name
+    file_fmt="bmp",
+    wind_size=64,
+    overlap=32,
+    dt=12, # Time between frames, mcs
+    scale = 0.02, # mm/pix
+    multipass=2,
+    multipass_mode="CWS", # CWS or DWS
+    multipass_scale=2.0, # Window downscale on each pass
+    folder_mode="pairs" # Pairs or sequential frames 
+)
+
+results = []
+for out in piv_gen():
+    x, y, vx, vy = out
+    results.append(out)
+
+```
+
 
 Tested on Windows
 

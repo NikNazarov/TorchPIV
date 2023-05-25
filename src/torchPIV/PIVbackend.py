@@ -47,13 +47,17 @@ class ToTensor:
         return torch.tensor(data, dtype=self.dtype)
 
 class PIVDataset(Dataset):
-    def __init__(self, folder, file_fmt, transform=None):
+    def __init__(self, folder, file_fmt, folder_mode, transform=None):
         self.transform = transform
         filenames = [os.path.join(folder, name) for name 
             in os.listdir(folder) if name.endswith(file_fmt)]
         filenames.sort(key=natural_keys)
-        self.img_pairs = list(zip(filenames[::2], filenames[1::2]))
-        # self.img_pairs = list(zip(filenames[:-1], filenames[1:]))
+        if folder_mode == "pairs":
+            self.img_pairs = list(zip(filenames[::2], filenames[1::2]))
+        elif folder_mode == "sequential":
+            self.img_pairs = list(zip(filenames[:-1], filenames[1:]))
+        else:
+            self.img_pairs = []
     def __len__(self):
         return len(self.img_pairs)
     
@@ -753,24 +757,26 @@ class OfflinePIV:
         file_fmt: str, 
         wind_size: int, 
         overlap: int,
-        iterations: int = 1,
-        iter_mod: str="DWS",
+        multipass: int = 1,
+        multipass_mode: str="CWS",
         dt: int = 1,
         scale:float = 1.,
-        iter_scale:float = 2.
+        multipass_scale:float = 2.,
+        folder_mode:str = "pairs"
                 ) -> None:
         self._wind_size = wind_size
         self._overlap = overlap
         self._dt = dt
-        self._iter = iterations
-        self._iter_scale = iter_scale
+        self._iter = multipass
+        self._iter_scale = multipass_scale
         self._scale = scale
         
         self._device = DeviceMap.devicies[device]
-        self._dataset = PIVDataset(folder, file_fmt, 
+        self._dataset = PIVDataset(folder, file_fmt, folder_mode, 
                        transform=ToTensor(dtype=torch.uint8)
                       )
-        self._iter_function = IterModMap.functions[iter_mod]
+        
+        self._iter_function = IterModMap.functions[multipass_mode]
         if not self:
             return
         frame_a, frame_b = self._dataset[0]
@@ -814,6 +820,10 @@ class OfflinePIV:
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
 
+            u = u * self._scale / self._dt * 1000
+            v = v * self._scale / self._dt * 1000
+            x = x * self._scale
+            y = y * self._scale
             yield x, y, u, v
             end_time = time()
             print(f"Batch finished in {(end_time - start):.3f} sec")
