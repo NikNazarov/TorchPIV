@@ -37,11 +37,11 @@ class PIVWorker(Worker):
             file_fmt=self.piv_params.file_fmt,
             wind_size=self.piv_params.wind_size,
             overlap=self.piv_params.overlap,
-            iter_mod=self.piv_params.iter_mod,
+            multipass_mode=self.piv_params.iter_mod,
             multipass=self.piv_params.iterations,
             dt=self.piv_params.dt,
             scale = self.piv_params.scale,
-            iter_scale=self.piv_params.iter_scale
+            multipass_scale=self.piv_params.iter_scale
         )
         if len(piv_gen) == 0:
             self.failed.emit()
