@@ -59,3 +59,7 @@ This method allows processing 4 thousand pairs of images with a size of 4 MP eac
 
 __Futhure plans__:
 Creating a version of the program for processing data during their recording. The ability to process stereo PIV data.
+
+You can cite this work with:  
+N. A. Nazarov and V. V Terekhov, “High level GPU-accelerated 2D PIV framework in Python,” Comput. Phys. Commun., p. 109009, 2023, doi: https://doi.org/10.1016/j.cpc.2023.109009.
+
