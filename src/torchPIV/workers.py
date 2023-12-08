@@ -60,7 +60,7 @@ class PIVWorker(Worker):
 
             u_inst.append(u.astype(np.float64))
             v_inst.append(v.astype(np.float64))
-            self.progress.emit((i + 1)/len(piv_gen)*100)
+            self.progress.emit(int((i + 1)/len(piv_gen)*100))
             output = {
             "x[mm]": x,
             "y[mm]": y,
