@@ -231,9 +231,19 @@ class Settings(QWidget):
         regimebox.addWidget(lbl)
         regimebox.addWidget(self.regime_box)
 
-        
+        folderfmtbox = QVBoxLayout()
+        lbl = QLabel("Folder Mode")
+        self.folder_mode_box = QComboBox()
+        self.folder_mode_box.addItems([
+            "pairs",
+            "sequential"
+        ])
+        folderfmtbox.addWidget(lbl)
+        folderfmtbox.addWidget(self.folder_mode_box)
+
         hhhbox = QHBoxLayout()
         hhhbox.addLayout(regimebox)
+        hhhbox.addLayout(folderfmtbox)
         hhhbox.addLayout(dummybox)    
     
         vbox_down.addLayout(hhbox)
@@ -251,7 +261,7 @@ class Settings(QWidget):
         
         self.wind_size.setText(str(self.state.wind_size))
         self.overlap.setText(str(self.state.overlap))
-        idx = self.iteration_mod.findText(str(self.state.iter_mod), Qt.MatchContains)
+        idx = self.iteration_mod.findText(str(self.state.multipass_mode), Qt.MatchContains)
         if idx >=0: self.iteration_mod.setCurrentIndex(idx)
         idx = self.device.findText(self.state.device, Qt.MatchContains)
         if idx >= 0: self.device.setCurrentIndex(idx) 
@@ -262,10 +272,13 @@ class Settings(QWidget):
         idx = self.save_options.findText(self.state.save_opt, Qt.MatchContains)
         if idx >=0: self.save_options.setCurrentIndex(idx)
         self.save_folder.setText(self.state.save_dir)
-        self.iteration.setText(str(self.state.iterations))
-        self.iteration_scale.setText(str(self.state.iter_scale))
+        self.iteration.setText(str(self.state.multipass))
+        self.iteration_scale.setText(str(self.state.multipass_scale))
         idx = self.regime_box.findText(str(self.state.regime), Qt.MatchContains)
         if idx >=0: self.regime_box.setCurrentIndex(idx)
+        idx = self.folder_mode_box.findText(str(self.state.folder_mode), Qt.MatchContains)
+        if idx >=0: self.folder_mode_box.setCurrentIndex(idx)
+
     
     
     def open_dialog(self, checked):
@@ -280,16 +293,17 @@ class Settings(QWidget):
         
         self.state.wind_size = int(self.wind_size.text())
         self.state.overlap = int(self.overlap.text())
-        self.state.iter_mod =self.iteration_mod.currentText()
+        self.state.multipass_mode =self.iteration_mod.currentText()
         self.state.device   = self.device.currentText()
         self.state.scale    = float(self.scale.text())
         self.state.dt       = int(self.time.text())
         self.state.file_fmt = self.file_fmt.currentText()
         self.state.save_opt = self.save_options.currentText()
         self.state.save_dir = self.save_folder.toPlainText()
-        self.state.iterations = int(self.iteration.text())
-        self.state.iter_scale = float(self.iteration_scale.text())
+        self.state.multipass = int(self.iteration.text())
+        self.state.multipass_scale = float(self.iteration_scale.text())
         self.state.regime     = self.regime_box.currentText()
+        self.state.folder_mode= self.folder_mode_box.currentText()
         self.state.to_json()
         if self.isVisible():
             self.hide()

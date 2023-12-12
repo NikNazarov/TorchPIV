@@ -37,11 +37,12 @@ class PIVWorker(Worker):
             file_fmt=self.piv_params.file_fmt,
             wind_size=self.piv_params.wind_size,
             overlap=self.piv_params.overlap,
-            multipass_mode=self.piv_params.iter_mod,
-            multipass=self.piv_params.iterations,
+            multipass_mode=self.piv_params.multipass_mode,
+            multipass=self.piv_params.multipass,
             dt=self.piv_params.dt,
             scale = self.piv_params.scale,
-            multipass_scale=self.piv_params.iter_scale
+            multipass_scale=self.piv_params.multipass_scale,
+            folder_mode=self.piv_params.folder_mode,
         )
         if len(piv_gen) == 0:
             self.failed.emit()
@@ -57,7 +58,6 @@ class PIVWorker(Worker):
                 break
 
             x, y, u, v = out
-
             u_inst.append(u.astype(np.float64))
             v_inst.append(v.astype(np.float64))
             self.progress.emit(int((i + 1)/len(piv_gen)*100))

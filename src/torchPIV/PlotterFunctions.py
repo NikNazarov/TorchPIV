@@ -115,14 +115,15 @@ class PIVparams(object):
     scale: float = 0.0
     dt: float = 0.0
     device: str = ""
-    iterations: int = 1
+    multipass: int = 1
     file_fmt: str = ""
     save_opt: str = "" 
     save_dir: str = "" 
-    iter_scale: float = 2.0
+    multipass_scale: float = 2.0
     folder: str = ""
     regime: str = ""
-    iter_mod:str=""
+    multipass_mode:str=""
+    folder_mode:str=""
 
     @classmethod
     def __setattr__(cls, name, val):
