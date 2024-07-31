@@ -6,6 +6,7 @@ from typing import Generator, Tuple
 from torch.utils.data import Dataset
 from scipy import interpolate
 import cv2
+import imageio.v3 as iio
 from time import time
 from torchPIV.PlotterFunctions import natural_keys
 
@@ -27,8 +28,8 @@ def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
     Reads image pair from disk as numpy array and performs transforms on it
     """
     try:
-        frame_b = cv2.imread(name_b, cv2.IMREAD_GRAYSCALE)
-        frame_a = cv2.imread(name_a, cv2.IMREAD_GRAYSCALE)
+        frame_b = iio.imread(name_b, mode='F').astype(int)
+        frame_a = iio.imread(name_a, mode='F').astype(int)
     except FileNotFoundError:
         print("Invalid File Path!")
         return None
@@ -44,6 +45,8 @@ class ToTensor:
     def __init__(self, dtype:  type) -> None:
         self.dtype = dtype
     def __call__(self, data: np.ndarray) -> torch.Tensor:
+        if data is None:
+            return None
         return torch.tensor(data, dtype=self.dtype)
 
 class PIVDataset(Dataset):
@@ -67,9 +70,13 @@ class PIVDataset(Dataset):
             index = index.tolist()
 
         pair = self.img_pairs[index]
-        #imread function works only with latin file path
-        img_b = cv2.imread(pair[1], cv2.IMREAD_GRAYSCALE)
-        img_a = cv2.imread(pair[0], cv2.IMREAD_GRAYSCALE)
+        #imread function works with unicode file path
+        img_b = iio.imread(pair[1])
+        img_a = iio.imread(pair[0])
+        if len(img_a.shape) == 3 and img_a.shape[-1] == 3:
+            img_a = cv2.cvtColor(img_a, cv2.COLOR_RGB2GRAY)
+        if len(img_b.shape) == 3 and img_b.shape[-1] == 3:
+            img_b = cv2.cvtColor(img_b, cv2.COLOR_RGB2GRAY)
         if self.transform:
             img_a = self.transform(img_a)
             img_b = self.transform(img_b)
@@ -795,7 +802,8 @@ class OfflinePIV:
         end_time = time()
 
         for a, b in loader:
-
+            if a is None or b is None:
+                continue
             print(f"Load time {(time() - end_time):.3f} sec", end=' ')
             start = time()
             a, b = a.to(self._device), b.to(self._device)
