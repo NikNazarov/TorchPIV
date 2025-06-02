@@ -75,7 +75,15 @@ class MainWindow(QMainWindow):
             QAction("Save profile", self),
             QAction("Save colormap", self)
         ])
+
+        videoMenu = QMenu("PIV Video File", self)
+        selectVideo = QAction("&New", self)
+        selectVideo.triggered.connect(self.controls.open_dialog_video)
+        videoMenu.addAction(selectFolder)
+        videoMenu.addAction(QAction(self.controls.settings.state.folder, self))
+
         fileMenu.addMenu(folderMenu)
+        fileMenu.addMenu(videoMenu)
         fileMenu.addMenu(pivfileMenu)
         fileMenu.addMenu(saveMenu)
         fileMenu.addAction(exitAction)

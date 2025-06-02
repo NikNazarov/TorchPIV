@@ -4,7 +4,7 @@ import numpy as np
 from collections import deque
 from torchPIV.PlotterFunctions import PIVparams, natural_keys
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QTimer
-from torchPIV.PlotterFunctions import save_table
+from torchPIV.PlotterFunctions import save_table, save_binary
 from torchPIV.PIVbackend import OfflinePIV, free_cuda_memory
 
 
@@ -67,7 +67,11 @@ class PIVWorker(Worker):
             "Vx[m/s]": u,
             "Vy[m/s]": v
             }
-            if self.piv_params.save_opt == "Save all":
+            if self.piv_params.save_opt == "Save all binary":
+                name = os.path.basename(os.path.normpath(self.folder))
+                save_binary(f"{name}_pair.npy", self.piv_params.save_dir, output.copy())
+
+            if self.piv_params.save_opt == "Save all text":
                 name = os.path.basename(os.path.normpath(self.folder))
                 save_table(f"{name}_pair.txt", self.piv_params.save_dir, output.copy())
             self.output.emit(output)

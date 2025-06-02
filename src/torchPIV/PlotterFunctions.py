@@ -46,6 +46,13 @@ def set_width(obj: object, target_type: type, width: int):
                 obj.__dict__[key].setFixedWidth(width)
 
 
+def save_binary(name, path, data: dict, sep:str=', '):    
+    if not os.path.exists(path):
+        os.mkdir(path)
+    path = uniquify(os.path.join(path, name))
+    stacked = np.stack(list(data.values()), axis=0)
+    np.save(path, stacked)
+    
 def save_table(name, path, data: dict, sep:str=', '):
     for key in data.keys():
         data[key] = data[key].reshape(-1)

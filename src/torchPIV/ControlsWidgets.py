@@ -144,7 +144,8 @@ class Settings(QWidget):
         self.save_options = QComboBox()
         self.save_options.addItems([
             "Save statistics",
-            "Save all",
+            "Save all text",
+            "Save all binary",
             "Dont save",
         ])
         lbl = QLabel("Save options")
@@ -499,6 +500,9 @@ class AnalysControlWidget(QWidget):
     def open_dialog(self, checked):
         folder = QFileDialog.getExistingDirectory()
         self.settings.state.folder = folder
+    def open_dialog_video(self, checked):
+        name, check = QFileDialog.getOpenFileName()
+        self.settings.state.folder = name
     
     def _changeButton(self):
         if self.piv_button.text() == "Start PIV":

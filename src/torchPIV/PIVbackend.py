@@ -28,8 +28,8 @@ def load_pair(name_a: str, name_b: str, transforms) -> Tuple[torch.Tensor]:
     Reads image pair from disk as numpy array and performs transforms on it
     """
     try:
-        frame_b = iio.imread(name_b, mode='F').astype(int)
-        frame_a = iio.imread(name_a, mode='F').astype(int)
+        frame_b = cv2.imread(name_b, cv2.IMREAD_GRAYSCALE)
+        frame_a = cv2.imread(name_a, cv2.IMREAD_GRAYSCALE)
     except FileNotFoundError:
         print("Invalid File Path!")
         return None
@@ -71,15 +71,13 @@ class PIVDataset(Dataset):
 
         pair = self.img_pairs[index]
         #imread function works with unicode file path
-        img_b = iio.imread(pair[1])
-        img_a = iio.imread(pair[0])
-        if len(img_a.shape) == 3 and img_a.shape[-1] == 3:
-            img_a = cv2.cvtColor(img_a, cv2.COLOR_RGB2GRAY)
-        if len(img_b.shape) == 3 and img_b.shape[-1] == 3:
-            img_b = cv2.cvtColor(img_b, cv2.COLOR_RGB2GRAY)
+        frame_b = cv2.imdecode(np.fromfile(pair[-1], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        frame_a = cv2.imdecode(np.fromfile(pair[0], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        if frame_a is None or frame_b is None:
+            return None, None
         if self.transform:
-            img_a = self.transform(img_a)
-            img_b = self.transform(img_b)
+            img_a = self.transform(frame_a)
+            img_b = self.transform(frame_b)
         
         return img_a, img_b
 
@@ -236,11 +234,15 @@ def fillMissingValues(target_for_interp,
     # Interpolate only holes, only using these pixels
     points = np.argwhere(mask_for_interp)
     values = target_for_interp[mask_for_interp]
-    if points.size:
-        interp = interpolator(points, values)
-        target_for_interp[invalid_mask] = interp(np.argwhere(invalid_mask))
+    if points.size < mask_for_interp.size / 2:
+        try:
+            interp = interpolator(points, values)
+            target_for_interp[invalid_mask] = interp(np.argwhere(invalid_mask))
+        except:
+            return None
     else:
         print("Warning! to many false vectors")
+        target_for_interp = None
     return target_for_interp
 
 
@@ -446,8 +448,8 @@ def extended_search_area_piv(
     aa = moving_window_array(frame_a, window_size, overlap)
     bb = moving_window_array(frame_b, window_size, overlap)
     # Normalize Intesity
-    # aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float32, keepdim=True)
-    # bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float32, keepdim=True)
+    aa = aa / torch.mean(aa, (-2,-1), dtype=torch.float64, keepdim=True)
+    bb = bb / torch.mean(bb, (-2,-1), dtype=torch.float64, keepdim=True)
     
     corr = correalte_fft(aa, bb)
     # Normalize correlation
@@ -824,6 +826,8 @@ class OfflinePIV:
                 v = interpolate_boarders(v)
                 u = fillMissingValues(u)
                 v = fillMissingValues(v)
+                if u is None or v is None:
+                    continue 
             
             u =  np.flip(u, axis=0)
             v = -np.flip(v, axis=0)
