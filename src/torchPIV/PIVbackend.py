@@ -17,6 +17,68 @@ class DeviceMap:
     }
     devicies["cpu"] = torch.device("cpu")
 
+def batchNormalize(images: torch.Tensor) -> torch.Tensor:
+    shape = images.shape
+    AA = images.view(shape[0], -1)
+    AA -= AA.min(1, keepdim=True)[0]
+    AA /= AA.max(1, keepdim=True)[0]
+    return AA.view(shape)
+
+def fastSAD(images_a: torch.Tensor, images_b: torch.Tensor) -> tuple[torch.Tensor]:
+    """
+    Compute batched FAST SAD between two torch.Tensors
+    input parameters: torch.Tensor [C, W, H], torch.Tensor [C, W, H]
+    key idea is to compute SAD from funtional   
+    
+    A[i] = mean(a[i, j], over j)
+    B[i] = mean(b[i, j], over j)
+
+    And compute SAD on these functionals
+
+    returns SAD over X and SAD over Y
+
+    """
+    norm_a = batchNormalize(images_a)
+    norm_b = batchNormalize(images_b)
+    aa_x = torch.mean(norm_a, dim=-2)
+    aa_y = torch.mean(norm_a, dim=-1)
+    bb_x = torch.mean(norm_b, dim=-2)
+    bb_y = torch.mean(norm_b, dim=-1)
+    ux = torch.zeros(aa_x.shape[0], aa_x.shape[-1]*2)
+    ux[:, aa_x.shape[-1]//2:aa_x.shape[-1]//2 + aa_x.shape[-1]] = aa_x
+    ux = ux.unfold(-1, aa_x.shape[-1], 1)
+    resx = torch.sum(torch.abs(bb_x.unsqueeze(-2) - ux), dim=-1)
+    uy = torch.zeros(aa_y.shape[0], aa_y.shape[-2]*2)
+    uy[:, aa_y.shape[-1]//2:aa_y.shape[-1]//2 + aa_y.shape[-1]] = aa_y
+    uy = uy.unfold(-1, aa_y.shape[-2], 1)
+    resy = torch.sum(torch.abs(bb_y.unsqueeze(-2) - uy), dim=-1)
+    return resx, resy
+
+def sadFFTReal(images_a: torch.Tensor, images_b: torch.Tensor, p: int=5) -> torch.Tensor:
+    """
+    Compute SAD addition based on fft method
+    Between two torch.Tensors of shape [c, width, height]
+    fft performed over last two dimensions of tensors
+    """
+    results = []
+    images_a = batchNormalize(images_a)
+    images_b = batchNormalize(images_b)
+    for i in range(1,p+1):
+        base = (2 * i - 1)
+        scaled_a = images_a * base
+        scaled_b = images_b * base
+        cosf = torch.cos(scaled_a)
+        cosg = torch.cos(scaled_b)
+        sinf = torch.sin(scaled_a)
+        sing = torch.sin(scaled_b)
+        results.append((torch.fft.rfft2(cosf).conj() *
+                   torch.fft.rfft2(cosg) + 
+                   torch.fft.rfft2(sinf).conj() *
+                   torch.fft.rfft2(sing)) / base**2)
+    result = torch.sum(torch.stack(results), dim=0)
+    results = []
+
+    return torch.fft.fftshift(torch.fft.irfft2(result), dim=(-2, -1))
 
 def free_cuda_memory():
     # torch.cuda.synchronize()

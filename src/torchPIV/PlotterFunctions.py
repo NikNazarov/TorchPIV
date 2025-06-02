@@ -45,7 +45,6 @@ def set_width(obj: object, target_type: type, width: int):
             if isinstance(val, target_type):
                 obj.__dict__[key].setFixedWidth(width)
 
-
 def save_binary(name, path, data: dict, sep:str=', '):    
     if not os.path.exists(path):
         os.mkdir(path)
