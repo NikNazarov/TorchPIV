@@ -1,3 +1,51 @@
 __pycache__
 dist
 *egg-info
+.vscode
+.pypirc
+*.pyc
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating System files
+*.DS_Store # macOS
+Thumbs.db # Windows
+
+# Virtual environment
+venv/
+env/
+lightTorchVenv
+.venv/
+.env
+
+# Environment variables file
+.env
+.flaskenv
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.spec
+
+# Testing and coverage
+.tox/
+.coverage
+htmlcov/
+
+# Editor/IDE-specific files (optional, customize as needed)
+.idea/ # PyCharm
+.vscode/ # VS Codes
+
+#test directories and files
+exp1/
+Fe*
+Новая папка/
+вода без поля/
+out/
+Output/
+*.csv
+test*

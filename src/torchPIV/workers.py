@@ -3,17 +3,17 @@ import time
 import numpy as np
 from collections import deque
 from torchPIV.PlotterFunctions import PIVparams, natural_keys
-from PyQt5.QtCore import QObject, pyqtSignal, QThread, QTimer
+from PySide6.QtCore import QObject, Signal, QThread, QTimer
 from torchPIV.PlotterFunctions import save_table, save_binary
 from torchPIV.PIVbackend import OfflinePIV, free_cuda_memory
 
 
 
 class Worker(QObject):
-    finished = pyqtSignal(dict)
-    progress = pyqtSignal(int)
-    output   = pyqtSignal(dict)
-    failed   = pyqtSignal()
+    finished = Signal(dict)
+    progress = Signal(int)
+    output   = Signal(dict)
+    failed   = Signal()
 
 class PIVWorker(Worker):
     def __init__(self, piv_params: PIVparams, *args, **kwargs) -> None:
@@ -53,7 +53,7 @@ class PIVWorker(Worker):
         start = time.time()
         for i, out in enumerate(piv_gen()):
             while self.is_paused and self.is_running: 
-                time.sleep(0)
+                QThread.sleep(0.1)
             if not self.is_running:
                 break
 

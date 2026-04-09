@@ -114,8 +114,10 @@ class ToTensor:
 class PIVDataset(Dataset):
     def __init__(self, folder, file_fmt, folder_mode, transform=None):
         self.transform = transform
-        filenames = [os.path.join(folder, name) for name 
-            in os.listdir(folder) if name.endswith(file_fmt)]
+        filenames = [
+            os.path.join(folder, name) for name 
+            in os.listdir(folder) if name.endswith(file_fmt)
+            ]
         filenames.sort(key=natural_keys)
         if folder_mode == "pairs":
             self.img_pairs = list(zip(filenames[::2], filenames[1::2]))

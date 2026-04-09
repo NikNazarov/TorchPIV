@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 plt.ioff()
 import torch
 from bisect import bisect_left
-from PyQt5.QtGui import QDoubleValidator, QIntValidator
-from PyQt5.QtCore import Qt, QLocale, pyqtSignal, pyqtSlot  
+from PySide6.QtGui import QDoubleValidator, QIntValidator
+from PySide6.QtCore import Qt, QLocale, Signal, Slot  
 from torchPIV.PlotterFunctions import Database, PIVparams, set_width
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QProgressBar,
@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
 
 
 class ListSlider(QSlider):
-    elementChanged = pyqtSignal(int)
+    elementChanged = Signal(int)
 
     def __init__(self, values=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -45,7 +45,7 @@ class ListSlider(QSlider):
         self.setMaximum(maximum)
         self.setValue(0)
 
-    @pyqtSlot(int)
+    @Slot(int)
     def _on_value_changed(self, index: int):
         value = self.values[index]
         self.elementChanged.emit(value)
@@ -98,7 +98,7 @@ class Settings(QWidget):
         self.overlap.setText("32")
         self.overlap.setAlignment(Qt.AlignRight)
         self.overlap.setValidator(QIntValidator(1, 256))
-        lbl = QLabel("Overlap")
+        lbl = QLabel("Overlap, pix")
         overlap_box = QVBoxLayout()
         overlap_box.addWidget(lbl)
         overlap_box.addWidget(self.overlap)
@@ -134,7 +134,9 @@ class Settings(QWidget):
 
         self.time = QLineEdit()
         self.time.setText("11")
-        self.time.setValidator(QIntValidator(1, 2147483647))
+        validator = QDoubleValidator(bottom=0.1)
+        validator.setLocale(QLocale("en_US"))
+        self.time.setValidator(validator)
         self.time.setAlignment(Qt.AlignRight)
         lbl = QLabel("dt, us")
         time_box = QVBoxLayout()
@@ -296,8 +298,8 @@ class Settings(QWidget):
         self.state.overlap = int(self.overlap.text())
         self.state.multipass_mode =self.iteration_mod.currentText()
         self.state.device   = self.device.currentText()
-        self.state.scale    = float(self.scale.text())
-        self.state.dt       = int(self.time.text())
+        self.state.scale    = float(self.scale.text().replace(",", "."))
+        self.state.dt       = float(self.time.text().replace(",", "."))
         self.state.file_fmt = self.file_fmt.currentText()
         self.state.save_opt = self.save_options.currentText()
         self.state.save_dir = self.save_folder.toPlainText()
@@ -372,7 +374,7 @@ class ViewSettings(QWidget):
         self.neg_scale_slider.set_value(self.neg_scale_text.text())
 
 class ProfileControls(QWidget):
-    fieldchosen = pyqtSignal(str)
+    fieldchosen = Signal(str)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = ViewSettings()
@@ -417,19 +419,18 @@ class ProfileControls(QWidget):
         self.setLayout(main_box)
     
 
-    @pyqtSlot(str)
+    @Slot(str)
     def on_activated(self, key):
         if key is None:
             return
         self.fieldchosen.emit(key)
 
-    @pyqtSlot(str)
+    @Slot(str)
     def on_orientation(self, key):
-        piv_data = self.data.get()
         if key == "Horizontal":
-            self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
+            self.slider.values = self.data.getY()[:, 0]
         else:
-            self.slider.values = piv_data[[*piv_data.keys()][0]][0]
+            self.slider.values = self.data.getX()[0]
 
         self.fieldchosen.emit(key)
         
@@ -441,18 +442,17 @@ class ProfileControls(QWidget):
         self.set_field_box()
     
     def init_profile(self):
-        self.field_box.activated[str].connect(self.on_activated)
+        self.field_box.currentTextChanged.connect(self.on_activated)
         self.orientation_qbox.clear()
         self.orientation_qbox.addItems(["Horizontal", "Vertical"])
-        self.orientation_qbox.activated[str].connect(self.on_orientation)
+        self.orientation_qbox.currentTextChanged.connect(self.on_orientation)
 
 
     def set_field_box(self):
-        piv_data = self.data.get()
         self.field_box.clear()
-        self.field_box.addItems([*piv_data.keys()][2:])
+        self.field_box.addItems([key for key in self.data.getKeys() if "mm" not in key])
         self.field_box.setCurrentText("Vy[m/s]")
-        self.slider.values = piv_data[[*piv_data.keys()][1]][:, 0]
+        self.slider.values = self.data.getY()[:, 0]
         self.slider.setValue(0)
         self.init_profile()
 
@@ -472,17 +472,6 @@ class AnalysControlWidget(QWidget):
         self.piv_button.pressed.connect(self._changeButton)
         self.initUI()
     def initUI(self):
-        # self.pbar.setStyleSheet("QProgressBar::chunk "
-        #           "{"
-        #             "background-color: green;"
-        #             "border-style: outset;"
-        #             "border-width: 2px;"
-        #             "border-radius: 10px;"
-        #             "border-color: beige;"
-        #             "font: bold 14px;"
-        #             "min-width: 10em;"
-        #             "padding: 6px;"
-        #           "}")
 
         progress_box = QVBoxLayout()
         lbl = QLabel("Total progress: ")

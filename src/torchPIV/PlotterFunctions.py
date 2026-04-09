@@ -3,7 +3,7 @@ import re
 import pandas as pd
 import numpy as np
 import json
-from PyQt5.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox
 
 def show_message(message: str) -> None:
     msgbox = QMessageBox()
@@ -188,7 +188,28 @@ class Database(Singleton):
 
     def get(self):
         return self._data
-
+    def getX(self):
+        if self._data:
+            for key in self._data.keys():
+                if key.strip().startswith("x"):
+                    return self._data[key]
+    def getY(self):
+        if self._data:
+            for key in self._data.keys():
+                if key.strip().startswith("y"):
+                    return self._data[key]
+    def getVx(self):
+        if self._data:
+            for key in self._data.keys():
+                if key.strip().startswith("Vx"):
+                    return self._data[key]
+    def getVy(self):
+        if self._data:
+            for key in self._data.keys():
+                if key.strip().startswith("Vy"):
+                    return self._data[key]
+    def getKeys(self):
+        return self._data.keys()
     def set(self, data: dict):
         self._data = data
     def load(self, name):

@@ -4,15 +4,14 @@ import warnings
 warnings.filterwarnings("ignore")
 import sys
 import gc
-from PyQt5.QtGui import QFont
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, QTimer
-from PyQt5.QtWidgets import (
+from PySide6.QtGui import QFont, QAction
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QVBoxLayout,
     QWidget,
     QMessageBox,
-    QAction,
     QMenu,
     QHBoxLayout,
 )
@@ -85,7 +84,7 @@ class MainWindow(QMainWindow):
         fileMenu.addMenu(folderMenu)
         fileMenu.addMenu(videoMenu)
         fileMenu.addMenu(pivfileMenu)
-        fileMenu.addMenu(saveMenu)
+        # fileMenu.addMenu(saveMenu)
         fileMenu.addAction(exitAction)
 
     def exit(self, checked):
@@ -133,8 +132,10 @@ class MainWindow(QMainWindow):
             return
         if self.worker.is_paused:
             text = "Pause"
+            self.timer.start(2000)
         else:
             text = "Resume"
+            self.timer.stop()
 
         self.controls.pause_button.setText(text)
         self.worker.is_paused = not self.worker.is_paused
@@ -225,7 +226,7 @@ def show_exception_box(log_msg):
 
  
 class UncaughtHook(QObject):
-    _exception_caught = pyqtSignal(object)
+    _exception_caught = Signal(object)
  
     def __init__(self, *args, **kwargs):
         super(UncaughtHook, self).__init__(*args, **kwargs)

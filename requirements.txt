@@ -1,9 +1,9 @@
 matplotlib>=3.4.3
-numpy==1.26.3
+numpy
 imageio>=2.33.1
 opencv_python>=4.5.5.64
 pandas>=1.3.4
-PyQt5>=5.15.7
+PySide6>=6.2.0
 scipy>=1.7.1
 watchdog>=2.1.3
 --find-links https://download.pytorch.org/whl/torch_stable.html

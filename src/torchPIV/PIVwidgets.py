@@ -4,11 +4,11 @@ matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
+from PySide6.QtCore import Signal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from torchPIV.PlotterFunctions import Database, show_message, autoscale_y, make_name, save_table
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSplitter
@@ -58,7 +58,8 @@ class ProfileCanvas(MplCanvas):
         if not piv_data:
             return
         self.field = piv_data[self.key]
-        x, y =  [*piv_data.values()][:2]
+        x = self.data.getX()
+        y = self.data.getY()
         self.x_data = x[0]
         self.y_data = y[:, 0]
         if isinstance(self.line, matplotlib.lines.Line2D):
@@ -104,9 +105,9 @@ class ProfileCanvas(MplCanvas):
 
 
 class PIVcanvas(MplCanvas):
-    topChanged  = pyqtSignal(str)
-    botChanged  = pyqtSignal(str)
-    lineChanged = pyqtSignal(float)
+    topChanged  = Signal(str)
+    botChanged  = Signal(str)
+    lineChanged = Signal(float)
     def __init__(self):
         super().__init__()
         self.cb          = None
@@ -164,17 +165,23 @@ class PIVcanvas(MplCanvas):
         piv_data = self.data.get()
         if not piv_data:
             return
-        x, y = [*piv_data.values()][:2]
+        x = self.data.getX()
+        y = self.data.getY()
         self.x_data = x[0]
         self.y_data = y[:, 0]
         field = piv_data[self.key]
         self.pos_avg = np.max(np.abs(field), initial=0)
         self.neg_avg = -self.pos_avg
-
         if isinstance(self.cb, matplotlib.colorbar.Colorbar):
-            self.cb.remove()
+            try:
+                self.cb.remove()
+            except:
+                pass
         if isinstance(self.img_data, matplotlib.collections.QuadMesh):
-            self.img_data.remove()
+            try:
+                self.img_data.remove()
+            except:
+                pass
         self.img_data = self.axes.pcolormesh(x, y, 
                                             field, 
                                             cmap="jet", 
@@ -208,10 +215,8 @@ class PIVcanvas(MplCanvas):
         self.set_field()
 
     def draw_streamlines(self):
-        piv_data = self.data.get()
-        if not piv_data:
-            return
-        u, v = [*piv_data.values()][2:4]
+        u = self.data.getVx()
+        v = self.data.getVy()
         x0 = self.x_data
         y0 = self.y_data
         xi = np.linspace(x0.min(), x0.max(), y0.size)
@@ -280,6 +285,7 @@ class PIVview(QSplitter):
 
         # self.setLayout(layout)
     def set_key(self, key):
+        print(key)
         self.piv.set_key(key)
         self.profile.set_key(key)
     def set_field(self):
@@ -294,14 +300,14 @@ class PIVWidget(QWidget):
         self.piv_view = PIVview()
         self.controls = ProfileControls()
         self.controls.hide_line_box.stateChanged.connect(self.piv_view.piv.hide_line)
-        self.controls.field_box.activated[str].connect(self.piv_view.set_key)
+        self.controls.field_box.activated.connect(lambda x: self.piv_view.set_key(self.controls.field_box.itemText(x)))
         self.controls.slider.valueChanged.connect(self.piv_view.piv.draw_line)
         self.controls.slider.valueChanged.connect(self.piv_view.profile.draw_line)
         self.controls.streamlines_box.stateChanged.connect(self.streamlines_checker)
         self.controls.grid_box.stateChanged.connect(self.grid_checker)
         self.controls.axes_box.stateChanged.connect(self.axes_checker)
-        self.controls.orientation_qbox.activated[str].connect(self.piv_view.profile.change_orientation)
-        self.controls.orientation_qbox.activated[str].connect(self.piv_view.piv.change_orientation)
+        self.controls.orientation_qbox.activated.connect(lambda x: self.piv_view.profile.change_orientation(self.controls.orientation_qbox.itemText(x)))
+        self.controls.orientation_qbox.activated.connect(lambda x: self.piv_view.piv.change_orientation(self.controls.orientation_qbox.itemText(x)))
         self.piv_view.piv.lineChanged.connect(self.controls.slider_LCD.display)
         self.controls.settings.pos_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_max)
         self.controls.settings.neg_scale_slider.valueChanged.connect(self.piv_view.piv.set_v_min)
